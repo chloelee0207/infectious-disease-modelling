@@ -3,6 +3,10 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 
+# Shared helpers (week_to_index, fmtq, burden, load_burden_params) live here,
+# deduplicated with CHIKV_ca_vacc.R.
+source("ca_common.R")
+
 # ============================================================
 # Caldas Novas (Goias) MAYV HYPOTHETICAL vaccination -- pre-outbreak campaign
 # ------------------------------------------------------------
@@ -202,7 +206,7 @@ mayv_vacc_efficacy    <- 0.989
 # Pre-outbreak campaign: begin well before the wet-season seed (2025-W26 = index 4,
 # vs seed_week = 27), so the immunised fraction is in place before any local
 # transmission. This is the maximum-achievable ("ceiling") timing.
-week_to_index <- function(year, week) ifelse(year == 2025, week - 22L, 30L + week)
+# week_to_index() is defined in ca_common.R.
 start_pre <- week_to_index(2025, 26)   # 2025-W26 -> index 4
 
 cat("Eligible 18-59 population:", round(target_pop), "\n")
@@ -220,53 +224,11 @@ stopifnot(start_pre >= 1, start_pre <= T_weeks, start_pre < seed_week)
 # disease-progression Beta hyperparameters (Hyolim Table S4): means feed the point
 # estimates, the alpha/beta feed the Monte Carlo draws (section 7). These are a
 # CHIKV-equivalent UPPER BOUND on MAYV severity.
-dp <- read_excel("disease_progression.xlsx", sheet = "disease_progression")
-names(dp)[1:10] <- c("parameter", "group", "median", "ui_lo", "ui_hi",
-                     "dist", "p1", "alpha", "p2", "beta")
-stopifnot(all(dp$dist == "Beta"))
-
-get_beta_ab <- function(param, group_regex = NULL) {
-  d <- dp[dp$parameter == param, ]
-  if (!is.null(group_regex)) d <- d[grepl(group_regex, d$group), ]
-  lo <- suppressWarnings(as.numeric(sub(".*\\[\\s*([0-9]+).*", "\\1", d$group)))
-  if (!all(is.na(lo))) d <- d[order(lo), ]
-  list(a = d$alpha, b = d$beta)
-}
-
-# prop_symp (symptomatic among infections), "Overall" -- equals the MAYV prop_symp
-ps <- get_beta_ab("Probability of symptomatic cases among infections", "^Overall$")
-ps_a <- ps$a; ps_b <- ps$b
-
-# hospitalisation among symptomatic (single, not age-specific)
-hp <- get_beta_ab("Probability of hospitalisation among symptomatic cases")
-hosp_a <- hp$a; hosp_b <- hp$b
-hosp_rate <- hosp_a / (hosp_a + hosp_b)
-
-# case fatality by decadal band [0,10)..[80,90) (length 9), hospitalised vs not
-ch <- get_beta_ab("Probability of death among hospitalised cases")
-cn <- get_beta_ab("Probability of death among non-hospitalised cases")
-cfr_hosp_a <- ch$a; cfr_hosp_b <- ch$b
-cfr_nonh_a <- cn$a; cfr_nonh_b <- cn$b
-stopifnot(length(ps_a) == 1, length(hosp_a) == 1,
-          length(cfr_hosp_a) == 9, length(cfr_nonh_a) == 9)
-
-cfr_h_mean <- cfr_hosp_a / (cfr_hosp_a + cfr_hosp_b)
-cfr_n_mean <- cfr_nonh_a / (cfr_nonh_a + cfr_nonh_b)
-cfr_band   <- hosp_rate * cfr_h_mean + (1 - hosp_rate) * cfr_n_mean  # death per symptomatic, by band
-
-age_to_band <- c(1, 1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9)   # 12 model groups -> 9 decadal bands
-stopifnot(length(age_to_band) == A)
-cfr_vec <- cfr_band[age_to_band]                       # death per symptomatic case, length A
-
-# Burden extractor: infections, symptomatic, hospitalisations, deaths.
-burden <- function(out, hr = hosp_rate, cv = cfr_vec) {
-  symp_age <- rowSums(out$new_symptomatic)
-  symp     <- sum(symp_age)
-  c(infections       = sum(out$new_infections),
-    symptomatic      = symp,
-    hospitalisations = symp * hr,
-    deaths           = sum(symp_age * cv))
-}
+# Read the Beta(alpha, beta) hyperparameters and unpack the severity parameters
+# (ps_*, hosp_*, cfr_*, age_to_band, cfr_vec) into the global environment. The
+# loader and burden() live in ca_common.R (shared with CHIKV_ca_vacc.R). These are
+# the BORROWED CHIKV severity values -- a CHIKV-equivalent upper bound for MAYV.
+invisible(list2env(load_burden_params(A), globalenv()))
 
 # ============================================================
 # 4. Scenario runner + run baseline and the pre-outbreak campaign (2 arms)
@@ -464,12 +426,7 @@ for (i in 1:n_draws) {
   if (i %% 100 == 0) cat("  ", i, "/", n_draws, "\n")
 }
 
-# ---- Summarise: median (2.5% - 97.5%) ----
-fmtq <- function(v, d = 0) {
-  q <- quantile(v, c(.5, .025, .975), na.rm = TRUE)
-  f <- function(x) formatC(round(x, d), big.mark = ",", format = "f", digits = d)
-  sprintf("%s (%s - %s)", f(q[1]), f(q[2]), f(q[3]))
-}
+# ---- Summarise: median (2.5% - 97.5%); fmtq() is defined in ca_common.R ----
 
 cat("\n=== Baseline burden, no vaccine (median, 95% UI) ===\n")
 for (o in outcomes)

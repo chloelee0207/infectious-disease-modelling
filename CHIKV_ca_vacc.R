@@ -3,6 +3,10 @@ library(tidyr)
 library(ggplot2)
 library(splines)
 
+# Shared helpers (week_to_index, fmtq, burden, load_burden_params) live here,
+# deduplicated with MAYV_ca_vacc.R.
+source("ca_common.R")
+
 # ============================================================
 # Caldas Novas (Goiás) CHIKV vaccination scenarios (IXCHIQ)
 # ------------------------------------------------------------
@@ -175,8 +179,7 @@ cat("Weekly delivery:", round(target_pop * total_coverage * weekly_delivery_spee
 #   2025-W23 = index 1  => 2025 weeks: index = week - 22
 #   2026-W01 = index 31 => 2026 weeks: index = 30 + week
 #   peak (2026-W09) = index 39
-week_to_index <- function(year, week) ifelse(year == 2025, week - 22L, 30L + week)
-
+# week_to_index() is defined in ca_common.R.
 start_s1 <- week_to_index(2026, 16)   # IXCHIQ real rollout, 18 Apr 2026 (2026-W16) -> 46
 start_s2 <- week_to_index(2026, 1)    # start of 2026 (2026-W01)                     -> 31
 start_s3 <- week_to_index(2025, 26)   # middle of 2025, before the outbreak          -> 4
@@ -192,57 +195,10 @@ stopifnot(all(c(start_s1, start_s2, start_s3) >= 1),
 # alpha, "Value 2" = beta) for each disease-progression probability, by Group.
 # We read alpha/beta here; the means feed the point estimates and the alpha/beta
 # feed the Monte Carlo draws (section 7).
-library(readxl)
-dp <- read_excel("disease_progression.xlsx", sheet = "disease_progression")
-names(dp)[1:10] <- c("parameter", "group", "median", "ui_lo", "ui_hi",
-                     "dist", "p1", "alpha", "p2", "beta")
-stopifnot(all(dp$dist == "Beta"))
-
-# Pull alpha/beta for rows matching an exact Parameter (+ optional Group regex),
-# ordered by the lower age bound when the Group is an "Age [lo, hi)" band.
-get_beta_ab <- function(param, group_regex = NULL) {
-  d <- dp[dp$parameter == param, ]
-  if (!is.null(group_regex)) d <- d[grepl(group_regex, d$group), ]
-  lo <- suppressWarnings(as.numeric(sub(".*\\[\\s*([0-9]+).*", "\\1", d$group)))
-  if (!all(is.na(lo))) d <- d[order(lo), ]
-  list(a = d$alpha, b = d$beta)
-}
-
-# prop_symp (symptomatic among infections), "Overall"
-ps <- get_beta_ab("Probability of symptomatic cases among infections", "^Overall$")
-ps_a <- ps$a; ps_b <- ps$b
-
-# hospitalisation among symptomatic (single, not age-specific)
-hp <- get_beta_ab("Probability of hospitalisation among symptomatic cases")
-hosp_a <- hp$a; hosp_b <- hp$b
-hosp_rate <- hosp_a / (hosp_a + hosp_b)             # mean (~0.040)
-
-# case fatality by decadal band [0,10)..[80,90) (length 9), hospitalised vs not
-ch <- get_beta_ab("Probability of death among hospitalised cases")
-cn <- get_beta_ab("Probability of death among non-hospitalised cases")
-cfr_hosp_a <- ch$a; cfr_hosp_b <- ch$b
-cfr_nonh_a <- cn$a; cfr_nonh_b <- cn$b
-stopifnot(length(ps_a) == 1, length(hosp_a) == 1,
-          length(cfr_hosp_a) == 9, length(cfr_nonh_a) == 9)
-
-cfr_h_mean <- cfr_hosp_a / (cfr_hosp_a + cfr_hosp_b)
-cfr_n_mean <- cfr_nonh_a / (cfr_nonh_a + cfr_nonh_b)
-cfr_band   <- hosp_rate * cfr_h_mean + (1 - hosp_rate) * cfr_n_mean  # death per symptomatic, by band
-
-age_to_band <- c(1, 1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9)   # 12 model groups -> 9 decadal bands
-stopifnot(length(age_to_band) == A)
-cfr_vec <- cfr_band[age_to_band]                       # death per symptomatic case, length A
-
-# Burden extractor: infections, symptomatic, hospitalisations, deaths.
-# hr (hosp rate) and cv (CFR-by-age) default to the means but accept per-draw values.
-burden <- function(out, hr = hosp_rate, cv = cfr_vec) {
-  symp_age <- rowSums(out$new_symptomatic)
-  symp     <- sum(symp_age)
-  c(infections       = sum(out$new_infections),
-    symptomatic      = symp,
-    hospitalisations = symp * hr,
-    deaths           = sum(symp_age * cv))
-}
+# Read the Beta(alpha, beta) hyperparameters and unpack the severity parameters
+# (ps_*, hosp_*, cfr_*, age_to_band, cfr_vec) into the global environment. The
+# loader and burden() live in ca_common.R (shared with MAYV_ca_vacc.R).
+invisible(list2env(load_burden_params(A), globalenv()))
 
 # ============================================================
 # 4. Run the no-vaccine baseline and 3 timings x 2 efficacy arms
@@ -453,12 +409,7 @@ for (i in 1:n_draws) {
   if (i %% 100 == 0) cat("  ", i, "/", n_draws, "\n")
 }
 
-# ---- Summarise: median (2.5% - 97.5%) ----
-fmtq <- function(v, d = 0) {
-  q <- quantile(v, c(.5, .025, .975), na.rm = TRUE)
-  f <- function(x) formatC(round(x, d), big.mark = ",", format = "f", digits = d)
-  sprintf("%s (%s - %s)", f(q[1]), f(q[2]), f(q[3]))
-}
+# ---- Summarise: median (2.5% - 97.5%); fmtq() is defined in ca_common.R ----
 
 cat("\n=== Baseline burden, no vaccine (median, 95% UI) ===\n")
 for (o in outcomes)
