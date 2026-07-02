@@ -1,0 +1,23 @@
+# ---- R session data & history (never commit these) ----
+.RData
+.Rhistory
+.Rproj.user/
+.Ruserdata/
+
+# ---- macOS junk ----
+.DS_Store
+
+# ---- Editor / tool folders ----
+.claude/
+
+# ---- Data files (kept off GitHub; too large / not for public repo) ----
+*.xlsx
+*.csv
+*.rds
+
+# ---- Generated outputs (plots, reports) ----
+*.png
+*.pdf
+
+# ---- Archived output figures ----
+Archive/
