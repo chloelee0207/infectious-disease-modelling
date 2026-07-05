@@ -292,11 +292,8 @@ cat("\nWrote caldas_vacc_averted.csv\n")
 # ============================================================
 # 6. Plots
 # ============================================================
-x_ticks <- caldas_obs |>
-  filter((Year == 2025 & week %in% c(30, 40, 50)) |
-           (Year == 2026 & week %in% c(10, 20)))
-year_break <- mean(c(max(caldas_obs$week_index[caldas_obs$Year == 2025]),
-                     min(caldas_obs$week_index[caldas_obs$Year == 2026])))
+# x_ticks and year_break are already defined by CHIKV_ca_pre_vacc_optim.R (sourced
+# above), so we reuse them here rather than recomputing.
 
 timing_cols <- c("actual rollout" = "#f4a582",
                  "start of 2026"  = "#2166ac",

@@ -1,5 +1,3 @@
-setwd("/Users/chloelee/Documents/R/summer_project")
-
 library(readxl)
 library(dplyr)
 library(tidyr)
