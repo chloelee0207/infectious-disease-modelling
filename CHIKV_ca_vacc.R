@@ -363,11 +363,15 @@ for (i in 1:n_draws) {
 
 # ---- Summarise: median (2.5% - 97.5%); fmtq() is defined in ca_common.R ----
 
-# Reporting-rate draws for the TRUE/iceberg scaling (Hyolim: rho ~ Beta(20, 60),
-# mean 0.25). Drawn here as an independent vector so the model draws above -- and
-# thus the anchored REPORTED column -- are unchanged; rho is independent of them.
+# Reporting-rate draws for the TRUE/iceberg scaling. Centred on rho_fixed (best_rho)
+# for consistency: we use rho = 0.40 for Caldas Novas (see CHIKV_ca_pre_vacc_optim.R),
+# so we sample Beta(32, 48) (mean 0.40, 95% ~0.29-0.51) -- the same concentration (80)
+# as Hyolim's national Beta(20, 60) [mean 0.25], re-centred to our municipality rate.
+# Drawn as an independent vector so the model draws above -- and thus the anchored
+# REPORTED column -- are unchanged; rho is independent of them.
 set.seed(2027)
-rho_draws <- rbeta(n_draws, 20, 60)
+stopifnot(abs(best_rho - 0.40) < 1e-9)   # keep Beta mean == best_rho
+rho_draws <- rbeta(n_draws, 32, 48)
 
 # ---- Baseline (no-vaccine) burden: TRUE vs REPORTED, all four outcomes ----
 # The reporting rate rho maps true -> reported (new_reported = rho * new_symptomatic),

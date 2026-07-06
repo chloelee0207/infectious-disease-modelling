@@ -162,11 +162,14 @@ sigma     <- 1 / 0.60
 gamma     <- 0.54
 prop_symp <- 0.5242478
 # Reporting rate is only weakly identified (the NLL is nearly flat in rho because
-# beta rescales to compensate), so we fix it on epidemiological grounds rather than
-# estimate it. rho = 0.45 implies ~45% attack rate among susceptibles, typical for
-# a first CHIKV wave. The fit is insensitive to this within the feasible range
-# (for Caldas Novas any rho from ~0.25 up is feasible; lower rho => higher attack rate).
-rho_fixed <- 0.25
+# beta rescales to compensate), so we fix it on epidemiological grounds. rho pins the
+# implied ATTACK RATE, which is the meaningfulness check: at rho 0.25 the fit needs a
+# ~73% attack rate and sustained high beta (R0 stays ~2.5 into the tail), which makes
+# infection-blocking vaccination DELAY the epidemic rather than prevent it. rho 0.40
+# implies a ~48% attack rate (typical first-wave), beta falls after the peak, and the
+# vaccine lowers the curve while keeping its shape. We fix rho = 0.40 on that basis.
+# (Set rho_fixed and the rho_draws Beta in CHIKV_ca_vacc.R consistently: same mean.)
+rho_fixed <- 0.40
 
 # Initial conditions (back-calculated from observed week-1 reported cases, frozen).
 # We capture the outbreak FROM ITS START (2025-W23, a low baseline before take-off),
