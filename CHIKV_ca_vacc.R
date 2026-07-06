@@ -400,17 +400,25 @@ for (o in outcomes) {
 write.csv(base_tbl, "caldas_baseline_burden.csv", row.names = FALSE)
 cat("Wrote caldas_baseline_burden.csv\n")
 
+# Averted burden is a TRUE-scale iceberg quantity (real infections/deaths prevented),
+# so it scales with the reporting rate the same way the totals do: multiply the
+# fixed-rho averted draws by best_rho / rho_draws to carry the rho ~ Beta(20,60)
+# uncertainty (so baseline_true - scenario_true = averted_true reconciles per draw).
+# NB the % reduction (summary_tbl / epicurve annotations) is rho-INVARIANT -- the
+# 1/rho factor cancels in averted/baseline -- so those are left unscaled.
+f_rho    <- best_rho / rho_draws
+av_true  <- function(nm, o) av_draws[[nm]][, o] * f_rho
 mc_tbl <- data.frame(
   timing = scen_meta$timing[match(vac_names, scen_meta$name)],
   arm    = scen_meta$arm[match(vac_names, scen_meta$name)],
-  Infections       = sapply(vac_names, function(nm) fmtq(av_draws[[nm]][, "infections"])),
-  Symptomatic      = sapply(vac_names, function(nm) fmtq(av_draws[[nm]][, "symptomatic"])),
-  Hospitalisations = sapply(vac_names, function(nm) fmtq(av_draws[[nm]][, "hospitalisations"], 1)),
-  Deaths           = sapply(vac_names, function(nm) fmtq(av_draws[[nm]][, "deaths"], 2)),
+  Infections       = sapply(vac_names, function(nm) fmtq(av_true(nm, "infections"))),
+  Symptomatic      = sapply(vac_names, function(nm) fmtq(av_true(nm, "symptomatic"))),
+  Hospitalisations = sapply(vac_names, function(nm) fmtq(av_true(nm, "hospitalisations"), 1)),
+  Deaths           = sapply(vac_names, function(nm) fmtq(av_true(nm, "deaths"), 2)),
   row.names = NULL, check.names = FALSE
 )
-cat("\n=== Averted vs no-vaccine baseline (median, 95% UI) ===\n")
-cat("    (outcomes: infections, symptomatic, hospitalisations, deaths)\n")
+cat("\n=== Averted vs no-vaccine baseline, TRUE scale (median, 95% UI) ===\n")
+cat("    (outcomes: infections, symptomatic, hospitalisations, deaths; rho ~ Beta(20,60))\n")
 old_width <- getOption("width"); options(width = 220)   # avoid wrapping the Deaths column
 print(mc_tbl, row.names = FALSE)
 options(width = old_width)

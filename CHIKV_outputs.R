@@ -30,7 +30,7 @@ if (file.exists("ca_common.R")) source("ca_common.R")   # fmtq(), etc.
              "base_tbl", "mc_tbl", "burden_mat",
              "wk_symp", "base_draws", "weekly_delivery_speed",
              "observed_cases", "best_rho", "ixchiq_efficacy",
-             "total_coverage", "immun_delay")
+             "total_coverage", "immun_delay", "rho_draws")
 .missing <- .needed[!vapply(.needed, exists, logical(1))]
 if (length(.missing)) {
   stop("CHIKV_outputs.R needs objects from the engine. Run CHIKV_ca_vacc.R first.\n",
@@ -116,8 +116,12 @@ ggsave("ca_vacc_averted.png", p_bar, width = 10, height = 4.2, dpi = 120)
 # ============================================================
 # 4. Figure (c): averted burden with 95% UI (Monte Carlo)
 # ============================================================
+# Averted is TRUE-scale (real cases prevented), so carry the rho ~ Beta(20,60)
+# uncertainty by scaling each draw by best_rho / rho_draws -- matching mc_tbl and the
+# vaccinated_true_reported totals (so baseline - scenario = averted reconciles per draw).
+f_rho <- best_rho / rho_draws
 mc_long <- do.call(rbind, lapply(vac_names, function(nm) {
-  m <- av_draws[[nm]]
+  m <- av_draws[[nm]] * f_rho
   data.frame(timing  = scen_meta$timing[scen_meta$name == nm],
              arm     = scen_meta$arm[scen_meta$name == nm],
              outcome = outcomes,
@@ -232,6 +236,27 @@ scenario_totals <- data.frame(scenario = rownames(burden_mat),
                               round(as.data.frame(burden_mat), 1),
                               row.names = NULL, check.names = FALSE)
 
+# Per-scenario TOTAL burden (true & reported), median + 95% UI -- the counterpart to
+# the averted table so you can cross-check totals vs averted. The per-draw scenario
+# total is base_draws - av_draws (paired), which exactly recovers each draw's total;
+# you cannot subtract the averted medians from the baseline medians because each UI is
+# a quantile over the MC draws.
+# Reporting-rate convention MATCHES caldas_baseline_burden (base_tbl in CHIKV_ca_vacc.R):
+#   REPORTED = best_rho * total          -- anchored, rho-independent (narrow UI)
+#   TRUE     = REPORTED / rho_draws      -- iceberg, carries rho ~ Beta(20,60) uncertainty
+# so the "No vaccine" rows here reproduce caldas_baseline_burden exactly. Deaths w_a-corrected.
+vac_scen <- c("No vaccine (baseline)", vac_names)
+vaccinated_true_reported <- do.call(rbind, lapply(vac_scen, function(nm) {
+  tot <- if (nm == "No vaccine (baseline)") base_draws else base_draws - av_draws[[nm]]
+  data.frame(
+    timing   = scen_meta$timing[scen_meta$name == nm],
+    arm      = scen_meta$arm[scen_meta$name == nm],
+    outcome  = outcomes,
+    true     = vapply(outcomes, function(o) fmtq(best_rho * tot[, o] / rho_draws, if (o == "deaths") 1 else 0), character(1)),
+    reported = vapply(outcomes, function(o) fmtq(best_rho * tot[, o],             if (o == "deaths") 1 else 0), character(1)),
+    row.names = NULL, stringsAsFactors = FALSE)
+}))
+
 # Run parameters / assumptions, pulled live from the engine objects.
 wa_on <- exists("age_weight") && !isTRUE(all.equal(age_weight, 1))
 notes <- data.frame(
@@ -258,11 +283,12 @@ notes <- data.frame(
   stringsAsFactors = FALSE)
 
 sheets <- list(
-  "notes"                  = notes,         # live run parameters / assumptions
-  "baseline_true_reported" = base_tbl,      # outcome, true, reported (median, 95% UI)
-  "averted_point"          = summary_tbl,   # timing, arm, *_averted, pct_* (numeric)
-  "averted_MC_95UI"        = mc_tbl,        # timing, arm, outcome cols (median, 95% UI)
-  "scenario_totals"        = scenario_totals# every scenario's total burden
+  "notes"                    = notes,         # live run parameters / assumptions
+  "baseline_true_reported"   = base_tbl,      # outcome, true, reported (median, 95% UI)
+  "vaccinated_true_reported" = vaccinated_true_reported,  # per-scenario TOTALS, true & reported
+  "averted_point"            = summary_tbl,   # timing, arm, *_averted, pct_* (numeric)
+  "averted_MC_95UI"          = mc_tbl,        # timing, arm, outcome cols (median, 95% UI)
+  "scenario_totals"          = scenario_totals# every scenario's total burden (point est.)
 )
 write_xlsx(sheets, "caldas_vacc_outputs.xlsx")
 cat("Wrote caldas_vacc_outputs.xlsx (sheets:",
