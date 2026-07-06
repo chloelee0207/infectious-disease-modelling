@@ -7,6 +7,9 @@ library(RhpcBLASctl)
 RhpcBLASctl::blas_set_num_threads(1)
 RhpcBLASctl::omp_set_num_threads(1)
 
+# Shared helpers incl. the canonical Caldas case loader load_caldas_age_cases().
+if (!exists("load_caldas_age_cases")) source("ca_common.R")
+
 # ------------------------------------------------------------
 # 1. SEIR simulator: weekly time-stepped, age-structured.
 #    Takes a weekly transmission-rate vector (base_beta) and returns weekly
@@ -141,22 +144,18 @@ cat(sprintf("Population growth rate r = %.5f /yr; total pop 2022 = %d -> 2025 = 
 pct_immune <- 100 * sum(R_init_prop * N) / sum(N)
 cat(sprintf("Total population already immune at start: %.1f%%\n", pct_immune))
 
-# Observed weekly cases: full outbreak window 2025-W23 -> 2026-W22 (52 weeks).
-raw <- read_excel("weekly_case.xlsx", sheet = "weekly_all")
-caldas_obs <- raw |>
-  filter(Code == 520450 & Year %in% c(2025, 2026)) |>
-  pivot_longer(cols = starts_with("Week"),
-               names_to = "week", values_to = "cases") |>
-  mutate(week  = as.integer(sub("Week ", "", week)),
-         cases = ifelse(is.na(cases), 0, cases)) |>
-  filter((Year == 2025 & week >= 23) | (Year == 2026 & week <= 22)) |>
-  arrange(Year, week) |>
-  mutate(week_index = row_number(),                                   # 1..52
-         week_label = paste0(Year, "-W", sprintf("%02d", week)))
-
-observed_cases <- caldas_obs$cases
+# Observed weekly cases: age-stratified SINAN download ("ca_combined" sheet), loaded
+# via the shared loader in ca_common.R (single source of truth, also used by
+# weekly_age_stratified.R). Window 2025-W23 -> 2026-W22 = 53 weeks (2025 has an epi
+# Semana 53), one more than the older plain weekly_all series (weekly_case.R).
+ca_cases       <- load_caldas_age_cases()
+caldas_obs     <- ca_cases$caldas_obs
+observed_cases <- ca_cases$observed_cases
+ca_age         <- ca_cases$ca_age          # age x week (for the age-stratified burden)
+age_totals     <- ca_cases$age_totals      # observed cases by age group
+obs_band_prop  <- ca_cases$obs_band_prop   # observed case share across the 9 CFR bands
 T_weeks <- length(observed_cases)
-stopifnot(T_weeks == 52, sum(observed_cases) == 8085)
+stopifnot(T_weeks == 53, sum(observed_cases) == 8209)
 
 # Fixed parameters
 sigma     <- 1 / 0.60
@@ -167,7 +166,7 @@ prop_symp <- 0.5242478
 # estimate it. rho = 0.45 implies ~45% attack rate among susceptibles, typical for
 # a first CHIKV wave. The fit is insensitive to this within the feasible range
 # (for Caldas Novas any rho from ~0.25 up is feasible; lower rho => higher attack rate).
-rho_fixed <- 0.45
+rho_fixed <- 0.25
 
 # Initial conditions (back-calculated from observed week-1 reported cases, frozen).
 # We capture the outbreak FROM ITS START (2025-W23, a low baseline before take-off),
@@ -202,12 +201,15 @@ cat("I0 (seeded infectious):", sum(I0), " E0 (seeded exposed):", sum(E0), "\n")
 df_choice <- 5
 
 # Active window: fit a time-varying beta only up to this week_index, then hold beta
-# constant (flat) afterwards (this would kill a spline tail curl-up in a data-poor tail).
-# For Caldas Novas the outbreak sits in the BACK half of the window and the data run
-# right up to the last week (2026-W22, still declining) -- there is no data-poor tail to
-# flatten -- so we use the FULL-window spline.
-#   2025-W23 = index 1 ; 2026-W01 = index 31 ; 2026-W09 (peak) = index 39 ; 2026-W22 = index 52.
-active_weeks <- T_weeks   # full-window spline (52 weeks)
+# constant (flat) afterwards, which prevents a spline curl-up where beta is not identified.
+# For Caldas Novas the outbreak is in the BACK half of the window, but from ~2026-W19 the
+# susceptible pool is depleted (<20%): incidence there is insensitive to beta, so a
+# full-window spline curls UPWARD -- a spurious late rise (R0 -> 3.24 at the very last
+# week) as the model raises beta to squeeze the declining tail out of a depleted pool.
+# Holding beta flat from index 50 (2026-W19) puts R0_max back at the true 2025-W50 peak
+# (~3.1) and matches the observed total. (Set active_weeks <- T_weeks for a full-window spline.)
+#   2025-W23 = index 1 ; 2026-W09 (case peak) = index 40 ; 2026-W19 = index 50 ; 2026-W22 = index 53.
+active_weeks <- 50
 
 #     Lognormal prior (regularisation) on weekly beta_t, in the spirit of Hyolim's
 #     beta_t ~ Lognormal. We add it as a MAP penalty so the fit stays MLE/optim-based.
@@ -220,9 +222,12 @@ active_weeks <- T_weeks   # full-window spline (52 weeks)
 #     (a low, flat off-season level) instead of curling up.
 #     Smaller prior_logsd = stronger regularisation. Set prior_logsd = Inf to disable.
 prior_logmean <- log(0.54)   # prior median beta = 0.54 (R0 ~ 1 on our scale)
-prior_logsd   <- 0.40        # compromise: tight enough to pull the data-poor tail down
-# toward ~0.54, loose enough that the (peak-weighted) data
-# still drive beta up to ~2.1 at the peak
+prior_logsd   <- 0.70        # loosened from 0.40: at rho = 0.25 the outbreak implies a
+# ~76% attack rate (R0 up to ~3.3), which the tighter 0.40 prior
+# suppressed (the fit undershot the total by ~5%). Caldas has data
+# across the WHOLE window (active_weeks = T_weeks), so heavy beta
+# regularisation is not needed here; 0.70 keeps R0_max ~3.2 and the
+# predicted total within ~1% of observed at both rho = 0.25 and 0.45.
 
 # Peak-emphasis weighting (to track the trend / peak, as in Hyolim's fitted curves
 # which sit slightly ABOVE the observed points at the peak). A negative-binomial fit

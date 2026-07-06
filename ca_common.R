@@ -12,11 +12,13 @@
 #                         return the Beta(alpha,beta) severity parameters
 # ============================================================
 library(readxl)
+suppressMessages({library(dplyr); library(tidyr)})
 
-# Calendar -> within-window index for the 2025-W23 -> 2026-W22 fit window:
-#   2025-W23 = index 1  (2025 weeks: index = week - 22)
-#   2026-W01 = index 31 (2026 weeks: index = 30 + week)
-week_to_index <- function(year, week) ifelse(year == 2025, week - 22L, 30L + week)
+# Calendar -> within-window index for the 2025-W23 -> 2026-W22 fit window.
+# The 2025 epi calendar has a Semana 53, so 2025 contributes 31 weeks (W23..W53):
+#   2025-W23 = index 1  ; 2025-W53 = index 31   (2025 weeks: index = week - 22)
+#   2026-W01 = index 32                          (2026 weeks: index = 31 + week)
+week_to_index <- function(year, week) ifelse(year == 2025, week - 22L, 31L + week)
 
 # Summarise a Monte Carlo draw vector as "median (2.5% - 97.5%)" with d decimals.
 fmtq <- function(v, d = 0) {
@@ -25,15 +27,28 @@ fmtq <- function(v, d = 0) {
   sprintf("%s (%s - %s)", f(q[1]), f(q[2]), f(q[3]))
 }
 
+# Optional age re-weighting for the (age-sensitive) death calc. Defaults to 1 (no
+# correction). The pipeline sets age_weight to observed_prop / model_prop by age so
+# deaths use the DATA-based age distribution instead of the population-structure one.
+# Guarded with exists() so RE-sourcing ca_common.R (e.g. from CHIKV_outputs.R) does
+# not clobber an age_weight the engine already set.
+if (!exists("age_weight")) age_weight <- 1
+
 # Burden extractor: infections, symptomatic, hospitalisations, deaths.
 # hr (hosp rate) and cv (CFR-by-age) default to the means but accept per-draw values.
-burden <- function(out, hr = hosp_rate, cv = cfr_vec) {
+# w re-weights the age distribution for DEATHS only, redistributing symptomatic cases
+# across ages while PRESERVING the total (so infections/symptomatic totals and the
+# single-rate hospitalisations are unchanged; only deaths move).
+burden <- function(out, hr = hosp_rate, cv = cfr_vec, w = age_weight) {
   symp_age <- rowSums(out$new_symptomatic)
   symp     <- sum(symp_age)
+  symp_w   <- symp_age * w
+  sw       <- sum(symp_w)
+  symp_dw  <- if (sw > 0) symp_w * (symp / sw) else symp_age   # renormalise: keep total
   c(infections       = sum(out$new_infections),
     symptomatic      = symp,
     hospitalisations = symp * hr,
-    deaths           = sum(symp_age * cv))
+    deaths           = sum(symp_dw * cv))
 }
 
 # Read the disease-progression Beta(alpha, beta) hyperparameters (Hyolim Table S4,
@@ -91,4 +106,79 @@ load_burden_params <- function(A,
        cfr_nonh_a = cfr_nonh_a, cfr_nonh_b = cfr_nonh_b,
        cfr_h_mean = cfr_h_mean, cfr_n_mean = cfr_n_mean, cfr_band = cfr_band,
        age_to_band = age_to_band, cfr_vec = cfr_vec)
+}
+
+# ------------------------------------------------------------
+# Canonical Caldas Novas age-stratified case loader (the "ca_combined" SINAN sheet).
+# Single source of truth for the outbreak-window cases used by BOTH the fit
+# (CHIKV_ca_pre_vacc_optim.R) and the age-stratified script (weekly_age_stratified.R),
+# so neither has to depend on the older plain weekly_all series (weekly_case.R).
+# Window 2025-W23 -> 2026-W22 = 53 weeks (2025 has an epi Semana 53). Missing zero-case
+# weeks (2025-W33 & W40) are zero-filled on a canonical contiguous grid.
+# Returns:
+#   observed_cases  weekly totals (length 53), ordered by week_index
+#   caldas_obs      week grid + totals (cols: Year, week, week_index, week_label, cases)
+#   ca_age          long age x week table (cols: week_index, week_label, Year, week,
+#                   age_group, cases)
+#   age_totals      cases summed by ca_combined age group
+#   obs_band_prop   observed case proportion across the 9 decadal CFR bands (length 9)
+#   age_levels      the ca_combined age-group labels, in order
+# ------------------------------------------------------------
+load_caldas_age_cases <- function(path = "weekly_case.xlsx", sheet = "ca_combined") {
+  age_levels <- c("<1 Ano", "1-4", "5-9", "10-14", "15-19",
+                  "20-39", "40-59", "60-64", "65-69", "70-79", "80 e +")
+  ca_long <- read_excel(path, sheet = sheet) |>
+    rename(Year = Ano, semana = Semana) |>
+    mutate(Year = as.integer(Year), week = as.integer(sub("Semana ", "", semana))) |>
+    filter((Year == 2025 & week >= 23) | (Year == 2026 & week <= 22)) |>
+    pivot_longer(all_of(age_levels), names_to = "age_group", values_to = "cases") |>
+    mutate(cases = ifelse(is.na(cases), 0, cases))
+
+  week_grid <- bind_rows(tibble(Year = 2025L, week = 23:53),
+                         tibble(Year = 2026L, week = 1:22)) |>
+    arrange(Year, week) |>
+    mutate(week_index = row_number(),
+           week_label = paste0(Year, "-W", sprintf("%02d", week)))
+
+  caldas_obs <- week_grid |>
+    left_join(ca_long |> group_by(Year, week) |>
+                summarise(cases = sum(cases), .groups = "drop"),
+              by = c("Year", "week")) |>
+    mutate(cases = ifelse(is.na(cases), 0, cases))
+
+  ca_age <- tidyr::expand_grid(week_grid, age_group = factor(age_levels, age_levels)) |>
+    left_join(ca_long |> mutate(age_group = factor(age_group, age_levels)),
+              by = c("Year", "week", "age_group")) |>
+    mutate(cases = ifelse(is.na(cases), 0, cases)) |>
+    dplyr::select(week_index, week_label, Year, week, age_group, cases)
+
+  age_totals <- ca_age |> group_by(age_group) |>
+    summarise(cases = sum(cases), .groups = "drop")
+
+  # observed case proportion across the 9 decadal CFR bands; two-band groups split evenly
+  group_to_bands <- list("<1 Ano" = 1, "1-4" = 1, "5-9" = 1, "10-14" = 2, "15-19" = 2,
+                         "20-39" = c(3, 4), "40-59" = c(5, 6),
+                         "60-64" = 7, "65-69" = 7, "70-79" = 8, "80 e +" = 9)
+  obs_band <- numeric(9)
+  for (g in age_levels) {
+    b <- group_to_bands[[g]]
+    n <- age_totals$cases[age_totals$age_group == g]
+    obs_band[b] <- obs_band[b] + n / length(b)
+  }
+
+  list(observed_cases = caldas_obs$cases, caldas_obs = caldas_obs,
+       ca_age = ca_age, age_totals = age_totals,
+       obs_band_prop = obs_band / sum(obs_band), age_levels = age_levels)
+}
+
+# Age re-weighting vector w_a (length A) that maps the model's baseline infection age
+# split to the OBSERVED case age split, per decadal band. Feed the model's baseline
+# infections-by-age (length A) plus obs_band_prop + age_to_band from load_burden_params.
+# Deaths computed with this w reproduce the observed age distribution (see burden()).
+compute_age_weight <- function(inf_age_model, obs_band_prop, age_to_band) {
+  mod_band <- as.numeric(tapply(inf_age_model, age_to_band, sum)[as.character(seq_along(obs_band_prop))])
+  mod_band[is.na(mod_band)] <- 0
+  mod_prop <- mod_band / sum(mod_band)
+  w_band   <- ifelse(mod_prop > 0, obs_band_prop / mod_prop, 1)
+  w_band[age_to_band]
 }
