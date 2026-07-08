@@ -203,16 +203,16 @@ cat("I0 (seeded infectious):", sum(I0), " E0 (seeded exposed):", sum(E0), "\n")
 # MEANINGFULNESS (plausible R0 range and attack rate) before trusting it.
 df_choice <- 5
 
-# Active window: fit a time-varying beta only up to this week_index, then hold beta
-# constant (flat) afterwards, which prevents a spline curl-up where beta is not identified.
-# For Caldas Novas the outbreak is in the BACK half of the window, but from ~2026-W19 the
-# susceptible pool is depleted (<20%): incidence there is insensitive to beta, so a
-# full-window spline curls UPWARD -- a spurious late rise (R0 -> 3.24 at the very last
-# week) as the model raises beta to squeeze the declining tail out of a depleted pool.
-# Holding beta flat from index 50 (2026-W19) puts R0_max back at the true 2025-W50 peak
-# (~3.1) and matches the observed total. (Set active_weeks <- T_weeks for a full-window spline.)
-#   2025-W23 = index 1 ; 2026-W09 (case peak) = index 40 ; 2026-W19 = index 50 ; 2026-W22 = index 53.
-active_weeks <- 50
+# Active window: fit a time-varying beta up to this week_index, then hold beta flat
+# afterwards (a guard against a spline curl-up where beta is not identified). This was
+# needed at rho 0.25, where the ~73% attack rate forced sustained high beta and a
+# full-window spline curled UPWARD in the depleted-susceptible tail. At rho 0.40 the
+# lower ~49% attack rate lets beta fall naturally after the peak, so the FULL-window
+# spline declines smoothly (R0 ~1.2 by 2026-W22, no curl-up) and even matches the
+# observed peak exactly -- so the flat-hold is no longer needed. make_beta_t() reduces
+# to a plain full-window spline when active_weeks == T_weeks.
+#   2025-W23 = index 1 ; 2026-W09 (case peak) = index 40 ; 2026-W22 = index 53.
+active_weeks <- T_weeks
 
 #     Lognormal prior (regularisation) on weekly beta_t, in the spirit of Hyolim's
 #     beta_t ~ Lognormal. We add it as a MAP penalty so the fit stays MLE/optim-based.
