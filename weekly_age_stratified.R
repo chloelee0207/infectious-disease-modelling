@@ -3,6 +3,7 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(scales)
+source("ca_common.R")   # load_caldas_age_cases(), load_burden_params(), fmtq(), ...
 
 # ----------------------------------------------------------------------------
 # Caldas Novas CHIKV weekly cases STRATIFIED BY AGE GROUP.
@@ -12,46 +13,15 @@ library(scales)
 # 22 in 2026), one more than the plain weekly_all series.
 # ----------------------------------------------------------------------------
 
-raw <- read_excel("weekly_case.xlsx", sheet = "ca_combined")
-
+# Age-stratified cases from the canonical shared loader in ca_common.R. This is the
+# SAME "ca_combined" data the fit (CHIKV_ca_pre_vacc_optim.R) uses -- single source of
+# truth, so this script and the model can never drift apart.
 age_levels <- c("<1 Ano", "1-4", "5-9", "10-14", "15-19",
                 "20-39", "40-59", "60-64", "65-69", "70-79", "80 e +")
-
-# Long form: one row per (Year, week, age_group)
-ca_long <- raw |>
-  rename(Year = Ano, semana = Semana) |>
-  mutate(
-    Year = as.integer(Year),
-    epi_week = as.integer(sub("Semana ", "", semana))
-  ) |>
-  filter((Year == 2025 & epi_week >= 23) | (Year == 2026 & epi_week <= 22)) |>
-  pivot_longer(all_of(age_levels), names_to = "age_group", values_to = "cases") |>
-  mutate(cases = ifelse(is.na(cases), 0, cases))
-
-# Canonical contiguous week grid for the window (fills 2025-W33 & W40, which
-# are absent from the sheet but were zero-case weeks) so week_index has no gaps.
-week_grid <- bind_rows(
-  tibble(Year = 2025L, epi_week = 23:53),
-  tibble(Year = 2026L, epi_week = 1:22)
-) |>
-  arrange(Year, epi_week) |>
-  mutate(week_index = row_number(),
-         week_label = paste0(Year, "-W", sprintf("%02d", epi_week)))
-
-# Age x week matrix (long), zero-filled across the full grid
-ca_age <- tidyr::expand_grid(week_grid, age_group = factor(age_levels, age_levels)) |>
-  left_join(ca_long |> mutate(age_group = factor(age_group, age_levels)),
-            by = c("Year", "epi_week", "age_group")) |>
-  mutate(cases = ifelse(is.na(cases), 0, cases)) |>
-  dplyr::select(week_index, week_label, Year, epi_week, age_group, cases)
-
-# Weekly total series (analogue of observed_cases in weekly_case.R)
-ca_total <- ca_age |>
-  group_by(week_index, week_label, Year, epi_week) |>
-  summarise(tot_cases = sum(cases), .groups = "drop") |>
-  arrange(week_index)
-
-observed_cases <- ca_total$tot_cases
+cc       <- load_caldas_age_cases()
+ca_age   <- cc$ca_age     |> rename(epi_week = week)                     # age x week (zero-filled)
+ca_total <- cc$caldas_obs |> rename(epi_week = week, tot_cases = cases)  # weekly totals
+observed_cases <- cc$observed_cases
 T_weeks <- length(observed_cases)
 
 stopifnot(T_weeks == 53, sum(observed_cases) == 8209)
@@ -79,8 +49,7 @@ print(as.data.frame(age_totals), row.names = FALSE)
 # the mean of those bands. Uncertainty is propagated by Monte Carlo draws from
 # the Beta(alpha, beta) hyperparameters.
 # ----------------------------------------------------------------------------
-source("ca_common.R")
-bp <- load_burden_params(12)          # exposes hosp_a/b and per-band cfr Beta params
+bp <- load_burden_params(12)          # exposes hosp_a/b and per-band cfr Beta params (ca_common.R)
 
 set.seed(42)
 N_mc <- 50000

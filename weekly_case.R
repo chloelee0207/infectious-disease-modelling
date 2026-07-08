@@ -27,7 +27,12 @@ caldas <- raw |>
 
 observed_cases <- caldas$tot_cases
 T_weeks <- length(observed_cases)
-stopifnot(T_weeks == 52, sum(observed_cases) == 8085)
+# NB: this script reads the plain `weekly_all` sheet (now 53 weeks incl. 2025-W53,
+# total 8,197). The vaccine analysis (CHIKV_ca_pre_vacc_optim.R and
+# weekly_age_stratified.R) instead uses the age-stratified `ca_combined` sheet,
+# which totals 8,209 over the same window -- a 12-case discrepancy between the two
+# SINAN downloads. Treat ca_combined (8,209) as canonical for the modelling.
+stopifnot(T_weeks == 53, sum(observed_cases) == 8197)
 cat("Caldas Novas outbreak (2025-W23 to 2026-W22) reported CHIKV cases:",
     sum(observed_cases), "\n")
 cat("Peak week:", caldas$week_label[which.max(observed_cases)],

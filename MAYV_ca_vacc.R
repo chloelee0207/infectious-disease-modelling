@@ -25,8 +25,9 @@ source("ca_common.R")
 #     Such a vaccine reduces symptoms/hospitalisations/deaths but NEVER blocks
 #     infection, so total infections are identical to no-vaccine. Central efficacy
 #     VE_block = 50%; 25% and 75% are the efficacy sensitivity levels.
-# Three plots: (a) total burden [no vaccine vs 50%], (b) averted [50%],
-# (c) averted efficacy sensitivity [25/50/75%]. R0 1.1-1.3 is a separate sensitivity.
+# MAYV_outputs.R turns the engine objects into three plots ((a) total burden
+# [no vaccine vs 50%], (b) averted [50%], (c) averted efficacy sensitivity
+# [25/50/75%]) and the Excel workbooks. R0 1.1-1.3 is a separate sensitivity.
 #
 # IMPORTANT CAVEATS
 #   1. There is NO licensed Mayaro vaccine. Efficacy is a HYPOTHETICAL disease-
@@ -262,7 +263,10 @@ run_scenario <- function(R0, coverage, start_week, VE_inf, VE_block,
 # Layer 2 -- VACCINE: DISEASE-BLOCKING ONLY (VE_inf = 0). Central VE_block = 50%;
 #   25% and 75% are the efficacy sensitivity levels. Infection-blocking is 0% in
 #   EVERY scenario, so infections never differ from the no-vaccine baseline.
-library(writexl); library(ggh4x)
+#
+# This file is the ENGINE: it builds the scenarios + Monte-Carlo objects in memory
+# (perm, perm_mc, av_mc, pe, tbl_total, tbl_averted, sens, ...). All FIGURES and
+# EXCEL writing live in MAYV_outputs.R -- run that after this script.
 
 size_R0 <- c("Current outbreak (R0 = 1.2)" = R0_central,
              "Future outbreak (R0 = 3.51)" = 3.51)
@@ -283,7 +287,8 @@ run_perm <- function(R0, coverage, VE_block, season_use = season, prop_symp_use 
   run_scenario(R0, coverage, start_pre, VE_inf = 0, VE_block = VE_block,
                season_use = season_use, prop_symp_use = prop_symp_use)
 
-outcomes <- c("infections", "symptomatic", "hospitalisations", "deaths")
+outcomes     <- c("infections", "symptomatic", "hospitalisations", "deaths")
+outcome_labs <- c("Infections", "Symptomatic", "Hospitalisations", "Deaths")
 
 # ---- Point estimates (R0 fixed at each layer value, central inputs) ----
 pe <- t(sapply(seq_len(np), function(j)
@@ -342,74 +347,8 @@ cat("\n=== TOTAL burden (median, 95% UI) ===\n");                 print(tbl_tota
 cat("\n=== Burden AVERTED vs no vaccine (median, 95% UI) ===\n"); print(tbl_averted, row.names = FALSE)
 options(width = old_width)
 
-write_xlsx(list(total_burden = tbl_total, averted = tbl_averted), "caldas_mayv_vacc_burden.xlsx")
-cat("\nWrote caldas_mayv_vacc_burden.xlsx (sheets: total_burden, averted)\n")
-
 # ============================================================
-# 7. Plots (grid: outbreak-size rows x outcome columns, independent y-axes)
-# ============================================================
-# Each panel has one bar per x category (no dodging), so bars and error bars align.
-outcome_labs <- c("Infections", "Symptomatic", "Hospitalisations", "Deaths")
-mc_long <- function(mats, rows) do.call(rbind, lapply(seq_along(mats), function(k) {
-  m <- mats[[k]]; j <- rows[k]
-  data.frame(size = perm$size[j], x = perm$eff[j], outcome = outcomes,
-             med = apply(m, 2, median, na.rm = TRUE),
-             lo  = apply(m, 2, quantile, .025, na.rm = TRUE),
-             hi  = apply(m, 2, quantile, .975, na.rm = TRUE), row.names = NULL)
-}))
-fmt_axes <- function(d, x_levels) {
-  d$size    <- factor(d$size, levels = names(size_R0))
-  d$x       <- factor(d$x,    levels = x_levels)
-  d$outcome <- factor(d$outcome, levels = outcomes, labels = outcome_labs)
-  d
-}
-grid_plot <- function(d, fill_vals, ytitle, title) {
-  ggplot(d, aes(x, med, fill = x)) +
-    geom_col(width = 0.7) +
-    geom_errorbar(aes(ymin = lo, ymax = hi), width = 0.25, linewidth = 0.4) +
-    ggh4x::facet_grid2(size ~ outcome, scales = "free_y", independent = "y") +
-    scale_fill_manual(values = fill_vals, name = NULL) +
-    scale_y_continuous(labels = scales::comma) +
-    labs(x = NULL, y = ytitle, title = title) +
-    theme_bw(base_size = 11) +
-    theme(plot.title = element_text(face = "bold", hjust = 0.5),
-          axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
-          legend.position = "none", panel.grid.minor = element_blank())
-}
-
-# (a) TOTAL burden: no vaccine + central 50% disease-blocking
-sel_tot <- which(perm$eff %in% c("No vaccine", eff_central_lab))
-d_tot <- fmt_axes(mc_long(perm_mc[sel_tot], sel_tot), c("No vaccine", eff_central_lab))
-p_total <- grid_plot(d_tot,
-  setNames(c("grey60", "#2166ac"), c("No vaccine", eff_central_lab)),
-  "Total burden, median + 95% UI",
-  "Hypothetical MAYV cases - total burden: no vaccine vs 50% disease-blocking")
-p_total
-ggsave("ca_mayv_vacc_burden.png", p_total, width = 10, height = 5.5, dpi = 120)
-
-# (b) AVERTED: central 50% disease-blocking only
-av_is_50 <- which(perm$eff[vac_rows] == eff_central_lab)
-d_av <- fmt_axes(mc_long(av_mc[av_is_50], vac_rows[av_is_50]), eff_central_lab)
-p_av <- grid_plot(d_av, setNames("#08519c", eff_central_lab),
-  "Burden averted vs no vaccine, median + 95% UI",
-  "Hypothetical MAYV cases - burden averted by 50% disease-blocking vaccine")
-p_av
-ggsave("ca_mayv_vacc_averted.png", p_av, width = 10, height = 5.5, dpi = 120)
-
-# (c) AVERTED efficacy sensitivity: 25% / 50% / 75% disease-blocking
-d_sens <- fmt_axes(mc_long(av_mc, vac_rows), names(eff_lvl))
-p_av_sens <- grid_plot(d_sens,
-  setNames(c("#9ecae1", "#4292c6", "#08519c"), names(eff_lvl)),
-  "Burden averted vs no vaccine, median + 95% UI",
-  "Hypothetical MAYV cases - burden averted by disease-blocking efficacy (25/50/75%)")
-p_av_sens
-ggsave("ca_mayv_vacc_averted_sensitivity.png", p_av_sens, width = 10, height = 5.5, dpi = 120)
-
-cat("\nSaved plots: ca_mayv_vacc_burden.png, ca_mayv_vacc_averted.png,",
-    "ca_mayv_vacc_averted_sensitivity.png\n")
-
-# ============================================================
-# 8. R0 SENSITIVITY (Caicedo 1.1 - 1.3) at the central 50% disease-blocking vaccine
+# 7. R0 SENSITIVITY (Caicedo 1.1 - 1.3) at the central 50% disease-blocking vaccine
 # ============================================================
 # Separate from the 95% UI: deterministic point estimates showing how the
 # Current-outbreak results move with the assumed R0. The Future outbreak (R0 = 3.51)
@@ -428,5 +367,5 @@ sens <- do.call(rbind, lapply(sens_R0, function(r0) {
 }))
 cat("\n=== R0 SENSITIVITY: burden at R0 = 1.1 / 1.2 / 1.3, 50% disease-blocking (point estimates) ===\n")
 print(sens, row.names = FALSE)
-write_xlsx(list(R0_sensitivity = sens), "caldas_mayv_vacc_R0_sensitivity.xlsx")
-cat("\nWrote caldas_mayv_vacc_R0_sensitivity.xlsx (sheet: R0_sensitivity)\n")
+
+cat("\nEngine ready. Run MAYV_outputs.R for figures + Excel workbooks.\n")

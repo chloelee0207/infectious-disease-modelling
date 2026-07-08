@@ -180,8 +180,8 @@ cat("Weekly delivery:", round(target_pop * total_coverage * weekly_delivery_spee
 #   2026-W01 = index 31 => 2026 weeks: index = 30 + week
 #   peak (2026-W09) = index 39
 # week_to_index() is defined in ca_common.R.
-start_s1 <- week_to_index(2026, 16)   # IXCHIQ real rollout, 18 Apr 2026 (2026-W16) -> 46
-start_s2 <- week_to_index(2026, 1)    # start of 2026 (2026-W01)                     -> 31
+start_s1 <- week_to_index(2026, 16)   # IXCHIQ real rollout, 18 Apr 2026 (2026-W16) -> 47
+start_s2 <- week_to_index(2026, 1)    # start of 2026 (2026-W01)                     -> 32
 start_s3 <- week_to_index(2025, 26)   # middle of 2025, before the outbreak          -> 4
 cat(sprintf("Scenario start indices: S1=%d (2026-W16), S2=%d (2026-W01), S3=%d (2025-W26)\n",
             start_s1, start_s2, start_s3))
@@ -199,6 +199,16 @@ stopifnot(all(c(start_s1, start_s2, start_s3) >= 1),
 # (ps_*, hosp_*, cfr_*, age_to_band, cfr_vec) into the global environment. The
 # loader and burden() live in ca_common.R (shared with MAYV_ca_vacc.R).
 invisible(list2env(load_burden_params(A), globalenv()))
+
+# Age re-weighting for DEATHS: correct the model's infection age split (population-
+# structure driven) to the OBSERVED case age split from ca_combined. out_best is the
+# fitted no-vaccine run (from CHIKV_ca_pre_vacc_optim.R); obs_band_prop comes from the
+# shared loader. age_weight is applied by burden() (ca_common.R) to all scenarios, so
+# the baseline reproduces the observed age distribution AND the vaccine's age-targeting
+# is preserved. Set age_weight <- 1 to disable and recover the population-based deaths.
+age_weight <- compute_age_weight(rowSums(out_best$new_infections), obs_band_prop, age_to_band)
+cat(sprintf("Age re-weighting for deaths: w ranges [%.2f, %.2f] (1 = no correction)\n",
+            min(age_weight), max(age_weight)))
 
 # ============================================================
 # 4. Run the no-vaccine baseline and 3 timings x 2 efficacy arms
@@ -290,75 +300,12 @@ write.csv(summary_tbl, "caldas_vacc_averted.csv", row.names = FALSE)
 cat("\nWrote caldas_vacc_averted.csv\n")
 
 # ============================================================
-# 6. Plots
+# 6. Plots  ->  moved to CHIKV_outputs.R (presentation layer)
 # ============================================================
-# x_ticks and year_break are already defined by CHIKV_ca_pre_vacc_optim.R (sourced
-# above), so we reuse them here rather than recomputing.
-
-timing_cols <- c("actual rollout" = "#f4a582",
-                 "start of 2026"  = "#2166ac",
-                 "pre-outbreak"   = "#b2182b")
-
-# (a) Weekly TRUE infections: baseline + the 3 timings (infection-blocking arm).
-#     Disease-blocking-only is omitted here because it does not change infections.
-inf_keys <- c("No vaccine (baseline)",
-              paste0(names(timings), " | Disease + infection blocking"))
-inf_df <- do.call(rbind, lapply(inf_keys, function(nm) {
-  lbl <- if (nm == "No vaccine (baseline)") nm else scen_meta$timing[scen_meta$name == nm]
-  data.frame(week = 1:T_weeks, infections = colSums(scenarios[[nm]]$new_infections), scenario = lbl)
-}))
-inf_df$scenario <- factor(inf_df$scenario,
-                          levels = c("No vaccine (baseline)", names(timings)))
-
-p_inf <- ggplot(inf_df, aes(week, infections, colour = scenario)) +
-  geom_vline(xintercept = year_break, linetype = "dashed", colour = "grey60") +
-  # geom_vline(xintercept = unlist(timings), linetype = "dotted",
-  #            colour = timing_cols[names(timings)], linewidth = 0.5) +
-  annotate("text", x = year_break, y = 0, label = "2026", angle = 90,
-           vjust = -0.5, hjust = -11.5, fontface = "bold", size = 3.5) +
-  geom_line(linewidth = 1) +
-  scale_colour_manual(values = c("No vaccine (baseline)" = "grey40", timing_cols), name = NULL) +
-  scale_x_continuous(breaks = x_ticks$week_index, labels = x_ticks$week) +
-  scale_y_continuous(labels = scales::comma) +
-  labs(x = "Week", y = "Weekly infections (true)",
-       title = "Caldas Novas CHIKV cases - disease + infection blocking") +
-  theme_bw(base_size = 12) +
-  theme(plot.title = element_text(face = "bold", hjust = 0.5),
-        legend.position = "inside", legend.position.inside = c(0.02, 0.98),
-        legend.justification = c(0, 1),
-        legend.background = element_rect(fill = scales::alpha("white", 0.6), colour = NA),
-        panel.grid.minor = element_blank(), panel.grid.major = element_blank())
-p_inf
-ggsave("ca_vacc_infections.png", p_inf, width = 8, height = 4.5, dpi = 120)
-
-# (b) Averted burden: facet by outcome, x = timing, fill = efficacy arm
-bar_df <- summary_tbl |>
-  dplyr::select(timing, arm, Infections = inf_averted, Symptomatic = symp_averted,
-                Hospitalisations = hosp_averted, Deaths = deaths_averted) |>
-  pivot_longer(c(Infections, Symptomatic, Hospitalisations, Deaths),
-               names_to = "outcome", values_to = "averted")
-bar_df$timing  <- factor(bar_df$timing, levels = names(timings))
-bar_df$arm     <- factor(bar_df$arm, levels = names(arms))   # disease-blocking first
-bar_df$outcome <- factor(bar_df$outcome,
-                         levels = c("Infections", "Symptomatic", "Hospitalisations", "Deaths"))
-
-p_bar <- ggplot(bar_df, aes(timing, averted, fill = arm)) +
-  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-  facet_wrap(~ outcome, scales = "free_y", nrow = 1) +
-  scale_fill_manual(values = c("Disease-blocking" = "#9ecae1",
-                               "Disease + infection blocking" = "#08519c"),
-                    name = NULL) +
-  scale_y_continuous(labels = scales::comma) +
-  labs(x = NULL, y = "Averted (vs no vaccine)",
-       title = "Caldas Novas CHIKV cases - burden averted") +
-  theme_bw(base_size = 11) +
-  theme(plot.title = element_text(face = "bold", hjust = 0.5),
-        axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
-        legend.position = "bottom", panel.grid.minor = element_blank())
-p_bar
-ggsave("ca_vacc_averted.png", p_bar, width = 10, height = 4.2, dpi = 120)
-
-cat("\nSaved plots: ca_vacc_infections.png, ca_vacc_averted.png\n")
+# All figures (weekly infections, averted-burden bars, MC averted-burden bars, and
+# the symptomatic epidemic-curve ribbons) are now produced by CHIKV_outputs.R, which
+# consumes this engine's objects. This script computes scenarios + Monte Carlo and
+# prints/writes the numeric tables only; source CHIKV_outputs.R afterwards for figures.
 
 # ============================================================
 # 7. Full Monte Carlo: averted burden with 95% uncertainty intervals
@@ -380,6 +327,12 @@ base_draws <- matrix(NA_real_, n_draws, 4, dimnames = list(NULL, outcomes))
 av_draws   <- setNames(lapply(vac_names, function(x)
                   matrix(NA_real_, n_draws, 4, dimnames = list(NULL, outcomes))), vac_names)
 
+# Per-draw WEEKLY symptomatic trajectory (summed over age) for every scenario,
+# for the epidemic-curve ribbon plot (95% UI) in CHIKV_outputs.R.
+wk_symp <- setNames(lapply(names(scenarios), function(x)
+                  matrix(NA_real_, n_draws, T_weeks)), names(scenarios))
+
+
 cat("\nRunning", n_draws, "Monte Carlo draws (7 SEIR runs each)...\n")
 for (i in 1:n_draws) {
   coefs_i  <- param_samples[i, 1:df_spline]
@@ -396,70 +349,85 @@ for (i in 1:n_draws) {
   out_b <- run_scenario(0, start_s3, 0, 0, base_beta = beta_t_i, prop_symp_use = ps_i)
   bb    <- burden(out_b, hosp_i, cfr_vec_i)
   base_draws[i, ] <- bb
+  wk_symp[["No vaccine (baseline)"]][i, ] <- colSums(out_b$new_symptomatic)
 
   for (tn in names(timings)) for (an in names(arms)) {
     nm  <- paste0(tn, " | ", an)
     out <- run_scenario(total_coverage, timings[[tn]], arms[[an]]["VE_inf"],
                         arms[[an]]["VE_block"], base_beta = beta_t_i, prop_symp_use = ps_i)
     av_draws[[nm]][i, ] <- bb - burden(out, hosp_i, cfr_vec_i)
+    wk_symp[[nm]][i, ]  <- colSums(out$new_symptomatic)
   }
   if (i %% 100 == 0) cat("  ", i, "/", n_draws, "\n")
 }
 
 # ---- Summarise: median (2.5% - 97.5%); fmtq() is defined in ca_common.R ----
 
-cat("\n=== Baseline burden, no vaccine (median, 95% UI) ===\n")
-for (o in outcomes)
-  cat(sprintf("  %-16s %s\n", o, fmtq(base_draws[, o], if (o == "deaths") 1 else 0)))
+# Reporting-rate draws for the TRUE/iceberg scaling. Centred on rho_fixed (best_rho)
+# for consistency: we use rho = 0.40 for Caldas Novas (see CHIKV_ca_pre_vacc_optim.R),
+# so we sample Beta(32, 48) (mean 0.40, 95% ~0.29-0.51) -- the same concentration (80)
+# as Hyolim's national Beta(20, 60) [mean 0.25], re-centred to our municipality rate.
+# Drawn as an independent vector so the model draws above -- and thus the anchored
+# REPORTED column -- are unchanged; rho is independent of them.
+set.seed(2027)
+stopifnot(abs(best_rho - 0.40) < 1e-9)   # keep Beta mean == best_rho
+rho_draws <- rbeta(n_draws, 32, 48)
 
+# ---- Baseline (no-vaccine) burden: TRUE vs REPORTED, all four outcomes ----
+# The reporting rate rho maps true -> reported (new_reported = rho * new_symptomatic),
+# so its uncertainty belongs on the TRUE/iceberg side, NOT the reported side:
+#   REPORTED = best_rho * base_draws -- the surveillance-visible burden, anchored by
+#              calibration to the observed case total (rho-independent by construction,
+#              so reported deaths stay put; its width is model-fit + severity only).
+#   TRUE     = REPORTED / rho, with rho ~ Beta(20, 60) drawn per iteration (rho_draws).
+#              This is the epidemiologically meaningful iceberg: a less-certain reporting
+#              rate makes the true epidemic more uncertain (lower rho -> bigger iceberg).
+# NB Hyolim's supplement specifies rho ~ Beta(20, 60) (mean 0.25, 95% 0.162-0.350). Its
+# quantile UI is a little wider than the paper's headline "25% (20.1-32.5)" (that figure
+# is ~Beta(50,141)); we use the stated generative Beta(20,60) for method consistency.
+cat("\n=== Baseline burden, no vaccine: TRUE vs REPORTED (median, 95% UI) ===\n")
+cat(sprintf("    Reported = best_rho x base (best_rho = %.2f); True = Reported / rho, rho ~ Beta(20,60).\n",
+            best_rho))
+cat(sprintf("    Observed reported cases = %s.\n",
+            formatC(sum(observed_cases), big.mark = ",", format = "d")))
+cat(sprintf("    %-16s  %-26s  %-26s\n", "Outcome", "True", "Reported"))
+base_tbl <- data.frame(outcome = character(), true = character(),
+                       reported = character(), stringsAsFactors = FALSE)
+for (o in outcomes) {
+  d      <- if (o == "deaths") 1 else 0
+  rep_v  <- best_rho * base_draws[, o]           # anchored, rho-independent
+  true_v <- rep_v / rho_draws                     # iceberg, carries reporting-rate uncertainty
+  cat(sprintf("    %-16s  %-26s  %-26s\n", o, fmtq(true_v, d), fmtq(rep_v, d)))
+  base_tbl <- rbind(base_tbl, data.frame(outcome = o,
+                                         true = fmtq(true_v, d), reported = fmtq(rep_v, d)))
+}
+write.csv(base_tbl, "caldas_baseline_burden.csv", row.names = FALSE)
+cat("Wrote caldas_baseline_burden.csv\n")
+
+# Averted burden is a TRUE-scale iceberg quantity (real infections/deaths prevented),
+# so it scales with the reporting rate the same way the totals do: multiply the
+# fixed-rho averted draws by best_rho / rho_draws to carry the rho ~ Beta(20,60)
+# uncertainty (so baseline_true - scenario_true = averted_true reconciles per draw).
+# NB the % reduction (summary_tbl / epicurve annotations) is rho-INVARIANT -- the
+# 1/rho factor cancels in averted/baseline -- so those are left unscaled.
+f_rho    <- best_rho / rho_draws
+av_true  <- function(nm, o) av_draws[[nm]][, o] * f_rho
 mc_tbl <- data.frame(
   timing = scen_meta$timing[match(vac_names, scen_meta$name)],
   arm    = scen_meta$arm[match(vac_names, scen_meta$name)],
-  Infections       = sapply(vac_names, function(nm) fmtq(av_draws[[nm]][, "infections"])),
-  Symptomatic      = sapply(vac_names, function(nm) fmtq(av_draws[[nm]][, "symptomatic"])),
-  Hospitalisations = sapply(vac_names, function(nm) fmtq(av_draws[[nm]][, "hospitalisations"], 1)),
-  Deaths           = sapply(vac_names, function(nm) fmtq(av_draws[[nm]][, "deaths"], 2)),
+  Infections       = sapply(vac_names, function(nm) fmtq(av_true(nm, "infections"))),
+  Symptomatic      = sapply(vac_names, function(nm) fmtq(av_true(nm, "symptomatic"))),
+  Hospitalisations = sapply(vac_names, function(nm) fmtq(av_true(nm, "hospitalisations"), 1)),
+  Deaths           = sapply(vac_names, function(nm) fmtq(av_true(nm, "deaths"), 2)),
   row.names = NULL, check.names = FALSE
 )
-cat("\n=== Averted vs no-vaccine baseline (median, 95% UI) ===\n")
-cat("    (outcomes: infections, symptomatic, hospitalisations, deaths)\n")
+cat("\n=== Averted vs no-vaccine baseline, TRUE scale (median, 95% UI) ===\n")
+cat("    (outcomes: infections, symptomatic, hospitalisations, deaths; rho ~ Beta(20,60))\n")
 old_width <- getOption("width"); options(width = 220)   # avoid wrapping the Deaths column
 print(mc_tbl, row.names = FALSE)
 options(width = old_width)
 write.csv(mc_tbl, "caldas_vacc_averted_mc.csv", row.names = FALSE)
 cat("\nWrote caldas_vacc_averted_mc.csv\n")
 
-# ---- Plot: averted burden with 95% UI error bars ----
-mc_long <- do.call(rbind, lapply(vac_names, function(nm) {
-  m <- av_draws[[nm]]
-  data.frame(timing  = scen_meta$timing[scen_meta$name == nm],
-             arm     = scen_meta$arm[scen_meta$name == nm],
-             outcome = outcomes,
-             med = apply(m, 2, median, na.rm = TRUE),
-             lo  = apply(m, 2, quantile, .025, na.rm = TRUE),
-             hi  = apply(m, 2, quantile, .975, na.rm = TRUE),
-             row.names = NULL)
-}))
-mc_long$timing  <- factor(mc_long$timing, levels = names(timings))
-mc_long$arm     <- factor(mc_long$arm, levels = names(arms))   # disease-blocking first
-mc_long$outcome <- factor(mc_long$outcome,
-                          levels = c("infections", "symptomatic", "hospitalisations", "deaths"),
-                          labels = c("Infections", "Symptomatic", "Hospitalisations", "Deaths"))
-
-p_mc <- ggplot(mc_long, aes(timing, med, fill = arm)) +
-  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-  geom_errorbar(aes(ymin = lo, ymax = hi), position = position_dodge(width = 0.8),
-                width = 0.25, linewidth = 0.4) +
-  facet_wrap(~ outcome, scales = "free_y", nrow = 1) +
-  scale_fill_manual(values = c("Disease-blocking" = "#9ecae1",
-                               "Disease + infection blocking" = "#08519c"), name = NULL) +
-  scale_y_continuous(labels = scales::comma) +
-  labs(x = NULL, y = "Burden averted, median + 95% UI",
-       title = "Caldas Novas CHIKV cases - burden averted") +
-  theme_bw(base_size = 11) +
-  theme(plot.title = element_text(face = "bold", hjust = 0.5),
-        axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
-        legend.position = "bottom", panel.grid.minor = element_blank())
-p_mc
-ggsave("ca_vacc_averted_mc.png", p_mc, width = 10, height = 4.2, dpi = 120)
-cat("Saved plot: ca_vacc_averted_mc.png\n")
+# ---- Averted-burden bar chart (95% UI) is drawn in CHIKV_outputs.R from av_draws. ----
+cat("\nEngine done. Source CHIKV_outputs.R for figures + the Excel workbook.\n")
