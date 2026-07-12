@@ -13,7 +13,7 @@ library(ggplot2)
 #  rescaled to MAYV's R0. The two diseases then differ only in R0 and natural
 #  history. Because R0 ~ 1.1-1.3 is interpreted as the SEASONAL-PEAK R0 and the
 #  off-season trough is sub-threshold, the outbreak is small and self-limiting:
-#  it builds, peaks in the wet season, and resolves within the 53-week window.
+#  it builds, peaks in the wet season, and resolves within the 52-week window.
 # ============================================================
 
 # ------------------------------------------------------------
@@ -142,8 +142,9 @@ cat(sprintf("Baseline MAYV immunity = %.0f%% (naive primary; vary 3/8/18%% per L
 susceptible_pop <- N * (1 - R_init_prop)
 S0_frac <- sum(susceptible_pop) / sum(N)
 
-T_weeks <- 53    # single-season window 2025-W23 -> 2026-W22 = 53 weeks (2025 has an
-                 # epi-week 53), aligned 1:1 with the 53-week CHIKV Caldas fit.
+T_weeks <- 52    # single-season window 2025-W24 -> 2026-W22 = 52 weeks (2025 has an
+                 # epi-week 53, so 2025 = W24..W53 = 30 wks), aligned 1:1 with the
+                 # 52-week CHIKV Caldas fit.
 
 # ------------------------------------------------------------
 # 4. Seasonal transmission envelope (the "vector seasonality"), taken from the
@@ -151,7 +152,7 @@ T_weeks <- 53    # single-season window 2025-W23 -> 2026-W22 = 53 weeks (2025 ha
 # ------------------------------------------------------------
 # PROVENANCE: the mean-normalised fitted Caldas Novas CHIKV beta_t shape, written by
 # CHIKV_ca_pre_vacc_optim.R as caldas_beta_season.rds (= best_beta_t / mean(best_beta_t),
-# mean = 1, full 53-week window 2025-W23 -> 2026-W22). This loads it dynamically so the
+# mean = 1, full 52-week window 2025-W24 -> 2026-W22). This loads it dynamically so the
 # seasonal shape stays in sync with the current CHIKV fit instead of being hard-coded.
 # REQUIRES running CHIKV_ca_pre_vacc_optim.R first to (re)generate the file.
 season_mean1 <- readRDS("caldas_beta_season.rds")
@@ -180,7 +181,7 @@ season <- if (r0_is_peak) season_mean1 / max(season_mean1) else season_mean1
 # 5. Seed the epidemic (a SINGLE introduced case at the START of the wet season)
 # ------------------------------------------------------------
 # MAYV reaches the town through one introduction. We introduce it at the ONSET of the
-# wet season (week_index 27 ~ 2025-W49, early Dec), NOT in mid-2025: a single case
+# wet season (week_index 26 ~ 2025-W49, early Dec), NOT in mid-2025: a single case
 # dropped into the dry season would just decay before transmission can support it, and
 # realistically introductions that ignite an outbreak arrive when conditions already
 # favour transmission. This replaces the earlier ongoing-importation scenario, which
@@ -190,7 +191,7 @@ season <- if (r0_is_peak) season_mean1 / max(season_mean1) else season_mean1
 I0_total  <- 1
 I0        <- I0_total * susceptible_pop / sum(susceptible_pop)
 E0        <- rep(0, A)
-seed_week <- 27        # introduce the index case at the wet-season onset (~2025-W49)
+seed_week <- 26        # introduce the index case at the wet-season onset (~2025-W49)
 
 # ------------------------------------------------------------
 # 6. Scenario runner: weekly beta = R0 * gamma * seasonal envelope
@@ -253,21 +254,21 @@ print(summary_df)
 # ------------------------------------------------------------
 # 9. Axis labels + wet/dry season shading helpers for the plots
 # ------------------------------------------------------------
-# Map a within-window index (1 = 2025-W23) to the plain epidemiological week number.
-# 2025 has an epi-week 53, so index 1-31 = 2025 (W23-W53) and index 32-53 = 2026 (W01-W22).
-wk_num <- function(idx) ifelse(idx <= 31, idx + 22, idx - 31)   # 2025: +22 ; 2026: -31
-tick_idx <- c(8, 18, 28, 41, 51)                      # 2025-W30/40/50, 2026-W10/20
-# Fixed 2025|2026 boundary sits between index 31 (2025-W53) and index 32 (2026-W01).
+# Map a within-window index (1 = 2025-W24) to the plain epidemiological week number.
+# 2025 has an epi-week 53, so index 1-30 = 2025 (W24-W53) and index 31-52 = 2026 (W01-W22).
+wk_num <- function(idx) ifelse(idx <= 30, idx + 23, idx - 30)   # 2025: +23 ; 2026: -30
+tick_idx <- c(7, 17, 27, 40, 50)                      # 2025-W30/40/50, 2026-W10/20
+# Fixed 2025|2026 boundary sits between index 30 (2025-W53) and index 31 (2026-W01).
 # (No observed-data lookup here -- this is a forward MAYV sim, so caldas_obs does not exist.)
-year_break <- 31.5
+year_break <- 30.5
 # x-axis tick table: labels are the plain epi-week NUMBERS (30,40,50,10,20), not dates.
 x_ticks <- data.frame(week_index = tick_idx, week = wk_num(tick_idx))
 
-# Wet vs dry season bands. The window starts 2025-W23 (early June). Using an
+# Wet vs dry season bands. The window starts 2025-W24 (early June). Using an
 # approximate epi-week -> month mapping, the WET season (Dec-Apr) spans week-index
-# ~27-49; the rest (Jun-Nov 2025 and May-Jun 2026) is DRY (May-Nov).
-wet_start <- 27   # ~2025-W49 = early Dec 2025 (unchanged: W49 precedes the inserted W53)
-wet_end   <- 49   # ~2026-W18 = early May 2026 (was 48; +1 for the inserted 2025-W53)
+# ~26-48; the rest (Jun-Nov 2025 and May-Jun 2026) is DRY (May-Nov).
+wet_start <- 26   # ~2025-W49 = early Dec 2025
+wet_end   <- 48   # ~2026-W18 = early May 2026
 
 # Reusable layers: pale wet/dry rectangles behind the data + season labels pinned to
 # the BOTTOM of the panel. annotate("rect") uses fixed fills (no fill scale), so it

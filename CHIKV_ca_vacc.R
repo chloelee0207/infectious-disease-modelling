@@ -173,16 +173,16 @@ cat("Weekly delivery:", round(target_pop * total_coverage * weekly_delivery_spee
     "doses/week over ~", round(1 / weekly_delivery_speed), "weeks\n")
 
 # ------------------------------------------------------------
-# 2b. Scenario start weeks (week_index within the 2025-W23 -> 2026-W22 window)
+# 2b. Scenario start weeks (week_index within the 2025-W24 -> 2026-W22 window)
 # ------------------------------------------------------------
 # Calendar -> index map for this fit window:
-#   2025-W23 = index 1  => 2025 weeks: index = week - 22
+#   2025-W24 = index 1  => 2025 weeks: index = week - 23
 #   2026-W01 = index 31 => 2026 weeks: index = 30 + week
 #   peak (2026-W09) = index 39
 # week_to_index() is defined in ca_common.R.
-start_s1 <- week_to_index(2026, 16)   # IXCHIQ real rollout, 18 Apr 2026 (2026-W16) -> 47
-start_s2 <- week_to_index(2026, 1)    # start of 2026 (2026-W01)                     -> 32
-start_s3 <- week_to_index(2025, 26)   # middle of 2025, before the outbreak          -> 4
+start_s1 <- week_to_index(2026, 16)   # IXCHIQ real rollout, 18 Apr 2026 (2026-W16) -> 46
+start_s2 <- week_to_index(2026, 1)    # start of 2026 (2026-W01)                     -> 31
+start_s3 <- week_to_index(2025, 26)   # middle of 2025, before the outbreak          -> 3
 cat(sprintf("Scenario start indices: S1=%d (2026-W16), S2=%d (2026-W01), S3=%d (2025-W26)\n",
             start_s1, start_s2, start_s3))
 stopifnot(all(c(start_s1, start_s2, start_s3) >= 1),

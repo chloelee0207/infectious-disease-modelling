@@ -8,9 +8,9 @@ source("ca_common.R")   # load_caldas_age_cases(), load_burden_params(), fmtq(),
 # ----------------------------------------------------------------------------
 # Caldas Novas CHIKV weekly cases STRATIFIED BY AGE GROUP.
 # Source: "ca_combined" sheet (SINAN download, age-group columns + Total).
-# Outbreak window: 2025-W23 .. 2026-W22.  Note the 2025 epidemiological
-# calendar has a Semana 53, so this window spans 53 weeks (31 in 2025 +
-# 22 in 2026), one more than the plain weekly_all series.
+# Outbreak window: 2025-W24 .. 2026-W22 = 52 weeks (30 in 2025, 22 in 2026).
+# The 2025 epidemiological calendar has a Semana 53, so 2025 contributes weeks
+# W24..W53 (30 weeks); 2025-W23 is excluded to give a clean 52-week window.
 # ----------------------------------------------------------------------------
 
 # Age-stratified cases from the canonical shared loader in ca_common.R. This is the
@@ -24,8 +24,8 @@ ca_total <- cc$caldas_obs |> rename(epi_week = week, tot_cases = cases)  # weekl
 observed_cases <- cc$observed_cases
 T_weeks <- length(observed_cases)
 
-stopifnot(T_weeks == 53, sum(observed_cases) == 8209)
-cat("Caldas Novas age-stratified CHIKV (2025-W23 to 2026-W22)\n")
+stopifnot(T_weeks == 52, sum(observed_cases) == 8204)
+cat("Caldas Novas age-stratified CHIKV (2025-W24 to 2026-W22)\n")
 cat("  weeks:", T_weeks, " total cases:", sum(observed_cases), "\n")
 cat("  peak week:", ca_total$week_label[which.max(observed_cases)],
     "with", max(observed_cases), "cases\n")
@@ -129,6 +129,32 @@ if (requireNamespace("writexl", quietly = TRUE))
 cat("\nWrote caldas_severity_by_age.csv",
     if (requireNamespace("writexl", quietly = TRUE)) "and caldas_severity_by_age.xlsx" else "", "\n")
 
+# ----------------------------------------------------------------------------
+# True number of infections (under-ascertainment correction)
+#   true infections = reported cases / P(symptomatic) / P(reported)
+# P(symptomatic): prop_symp ~ Beta(ps_a, ps_b) (Hyolim; mean 52.4%, 95% 40.6-64.0);
+#                 already loaded in bp above.
+# P(reported)   : reporting rate rho ~ Beta(20, 60) (Hyolim supplement; mean 25%,
+#                 95% 16.2-35.0). NB this is her stated generative Beta and is a
+#                 touch wider than the paper's headline "25% (20.1-32.5)"; using it
+#                 keeps this consistent with CHIKV_ca_vacc.R. To honour the headline
+#                 UI instead, swap in rbeta(N_mc, 49.76, 141.17).
+# Uncertainty in both is propagated by Monte Carlo through the two divisions.
+# ----------------------------------------------------------------------------
+ps_draw  <- rbeta(N_mc, bp$ps_a, bp$ps_b)
+rho_draw <- rbeta(N_mc, 20, 60)
+true_inf_draw <- sum(observed_cases) / ps_draw / rho_draw
+
+ti_point <- sum(observed_cases) / (bp$ps_a / (bp$ps_a + bp$ps_b)) / 0.25
+ti_q     <- qs(true_inf_draw)                 # median, 2.5%, 97.5%
+cat(sprintf("\nTrue infections = %s reported cases / prop_symp / reporting_rate\n",
+            format(sum(observed_cases), big.mark = ",")))
+cat(sprintf("  point estimate (0.524, 0.25) : %s\n", format(round(ti_point), big.mark = ",")))
+cat(sprintf("  Monte Carlo median (95%% UI)  : %s (%s - %s)\n",
+            format(round(ti_q[1]), big.mark = ","),
+            format(round(ti_q[2]), big.mark = ","),
+            format(round(ti_q[3]), big.mark = ",")))
+
 # ---- Axis helpers (mirror weekly_case.R) ----
 x_ticks <- ca_total |>
   filter((Year == 2025 & epi_week %in% c(30, 40, 50)) |
@@ -144,7 +170,7 @@ year_break <- mean(c(
 caldas_weekly <- ggplot(ca_total, aes(x = week_index, y = tot_cases)) +
   geom_vline(xintercept = year_break, linetype = "dashed", colour = "grey50") +
   annotate("text", x = year_break, y = 0,
-           label = "2026", angle = 90, vjust = -0.4, hjust = -11,
+           label = "2026", angle = 90, vjust = -0.2, hjust = -11,
            fontface = "bold", size = 3.6, colour = "grey40") +
   geom_line(linewidth = 0.6) +
   scale_x_continuous(breaks = x_ticks$week_index, labels = x_ticks$label) +
@@ -157,6 +183,7 @@ caldas_weekly <- ggplot(ca_total, aes(x = week_index, y = tot_cases)) +
         panel.grid.minor = element_blank())
 
 print(caldas_weekly)
+ggsave("caldas_weekly.png", caldas_weekly, width = 9, height = 5, dpi = 120)
 
 # ---- Plot 2: weekly cases stacked by age group ----
 caldas_age <- ggplot(ca_age, aes(x = week_index, y = cases, fill = age_group)) +
@@ -184,7 +211,7 @@ print(caldas_age)
 #   2. Goias 2024 arbovirus/VHF deaths   -- mortality_2024.xlsx, CID-BR-10 row
 #      "020 Outras febres por arbovirus e febres hemorragicas virais"
 #   3. CFR = deaths / cases  (assumes ALL those arbovirus deaths are chikungunya)
-#   4. Goias cases over the outbreak window (2025-W23 .. 2026-W22)
+#   4. Goias cases over the outbreak window (2025-W24 .. 2026-W22)
 #   5. Caldas Novas population as a share of Goias  -- population.xlsx, 2025 sheet
 #   6. Estimated Caldas deaths = CFR x Goias-window cases x population share
 # ============================================================================
@@ -195,12 +222,12 @@ wa <- suppressMessages(read_excel("weekly_case.xlsx", sheet = "weekly_all")) |>
          c = ifelse(is.na(c), 0, c))
 
 goias_cases_2024 <- sum(wa$c[wa$Year == 2024])
-# Outbreak window 2025-W23 .. 2026-W22, INCLUDING 2025-W53, so it matches the
-# Caldas analysis window exactly (2025 has an epidemiological Semana 53).
-goias_win <- sum(wa$c[(wa$Year == 2025 & wa$week >= 23) |
+# Outbreak window 2025-W24 .. 2026-W22 (INCLUDING 2025-W53), matching the Caldas
+# analysis window exactly (2025 has an epidemiological Semana 53).
+goias_win <- sum(wa$c[(wa$Year == 2025 & wa$week >= 24) |
                       (wa$Year == 2026 & wa$week <= 22)])
 # For reference only: the same window excluding 2025-W53.
-goias_win_excl53 <- sum(wa$c[(wa$Year == 2025 & wa$week >= 23 & wa$week <= 52) |
+goias_win_excl53 <- sum(wa$c[(wa$Year == 2025 & wa$week >= 24 & wa$week <= 52) |
                              (wa$Year == 2026 & wa$week <= 22)])
 
 # --- Goias arbovirus/VHF deaths 2024 (CID-BR-10 code 020) ---
@@ -230,7 +257,7 @@ cat("\n================ SENSE CHECK: deaths in Caldas Novas ================\n")
 cat(sprintf("Goias chikungunya cases 2024              : %s\n", format(goias_cases_2024, big.mark = ",")))
 cat(sprintf("Goias arbovirus/VHF deaths 2024 (CID 020) : %d\n", goias_arbo_deaths_2024))
 cat(sprintf("Implied Goias CFR (2024)                  : %.3f%%\n", 100 * goias_cfr))
-cat(sprintf("Goias cases, window 2025-W23..2026-W22    : %s\n",
+cat(sprintf("Goias cases, window 2025-W24..2026-W22    : %s\n",
             format(goias_win, big.mark = ",")))
 cat(sprintf("Caldas Novas / Goias population share     : %s / %s = %.3f%%\n",
             format(caldas_pop, big.mark = ","), format(goias_pop, big.mark = ","), 100 * pop_share))

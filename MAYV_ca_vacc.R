@@ -207,11 +207,11 @@ immun_delay           <- 2      # 2 weeks from dose to immunity (IXCHIQ-like)
 mayv_vacc_efficacy    <- 0.50            # central disease-blocking VE_block
 mayv_vacc_eff_sens    <- c(0.25, 0.50, 0.75)   # efficacy sensitivity levels
 
-# Pre-outbreak campaign: begin well before the wet-season seed (2025-W26 = index 4,
-# vs seed_week = 27), so the immunised fraction is in place before any local
+# Pre-outbreak campaign: begin well before the wet-season seed (2025-W26 = index 3,
+# vs seed_week = 26), so the immunised fraction is in place before any local
 # transmission. This is the maximum-achievable ("ceiling") timing.
 # week_to_index() is defined in ca_common.R.
-start_pre <- week_to_index(2025, 26)   # 2025-W26 -> index 4
+start_pre <- week_to_index(2025, 26)   # 2025-W26 -> index 3
 
 cat("Eligible 18-59 population:", round(target_pop), "\n")
 cat("Target doses (30% coverage):", round(target_pop * total_coverage), "\n")

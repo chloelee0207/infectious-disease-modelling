@@ -14,11 +14,11 @@
 library(readxl)
 suppressMessages({library(dplyr); library(tidyr)})
 
-# Calendar -> within-window index for the 2025-W23 -> 2026-W22 fit window.
-# The 2025 epi calendar has a Semana 53, so 2025 contributes 31 weeks (W23..W53):
-#   2025-W23 = index 1  ; 2025-W53 = index 31   (2025 weeks: index = week - 22)
-#   2026-W01 = index 32                          (2026 weeks: index = 31 + week)
-week_to_index <- function(year, week) ifelse(year == 2025, week - 22L, 31L + week)
+# Calendar -> within-window index for the 2025-W24 -> 2026-W22 fit window.
+# The 2025 epi calendar has a Semana 53, so 2025 contributes 30 weeks (W24..W53):
+#   2025-W24 = index 1  ; 2025-W53 = index 30   (2025 weeks: index = week - 23)
+#   2026-W01 = index 31                          (2026 weeks: index = 30 + week)
+week_to_index <- function(year, week) ifelse(year == 2025, week - 23L, 30L + week)
 
 # Summarise a Monte Carlo draw vector as "median (2.5% - 97.5%)" with d decimals.
 fmtq <- function(v, d = 0) {
@@ -26,6 +26,10 @@ fmtq <- function(v, d = 0) {
   f <- function(x) formatC(round(x, d), big.mark = ",", format = "f", digits = d)
   sprintf("%s (%s - %s)", f(q[1]), f(q[2]), f(q[3]))
 }
+
+# Numeric median + 95% quantiles as c(median, 2.5%, 97.5%) for a MC draw vector.
+# (fmtq() is the string formatter; qs() returns the raw numbers for further use.)
+qs <- function(v) as.numeric(quantile(v, c(.5, .025, .975), na.rm = TRUE))
 
 # Optional age re-weighting for the (age-sensitive) death calc. Defaults to 1 (no
 # correction). The pipeline sets age_weight to observed_prop / model_prop by age so
@@ -113,10 +117,10 @@ load_burden_params <- function(A,
 # Single source of truth for the outbreak-window cases used by BOTH the fit
 # (CHIKV_ca_pre_vacc_optim.R) and the age-stratified script (weekly_age_stratified.R),
 # so neither has to depend on the older plain weekly_all series (weekly_case.R).
-# Window 2025-W23 -> 2026-W22 = 53 weeks (2025 has an epi Semana 53). Missing zero-case
+# Window 2025-W24 -> 2026-W22 = 52 weeks (2025 has an epi Semana 53). Missing zero-case
 # weeks (2025-W33 & W40) are zero-filled on a canonical contiguous grid.
 # Returns:
-#   observed_cases  weekly totals (length 53), ordered by week_index
+#   observed_cases  weekly totals (length 52), ordered by week_index
 #   caldas_obs      week grid + totals (cols: Year, week, week_index, week_label, cases)
 #   ca_age          long age x week table (cols: week_index, week_label, Year, week,
 #                   age_group, cases)
@@ -130,11 +134,11 @@ load_caldas_age_cases <- function(path = "weekly_case.xlsx", sheet = "ca_combine
   ca_long <- read_excel(path, sheet = sheet) |>
     rename(Year = Ano, semana = Semana) |>
     mutate(Year = as.integer(Year), week = as.integer(sub("Semana ", "", semana))) |>
-    filter((Year == 2025 & week >= 23) | (Year == 2026 & week <= 22)) |>
+    filter((Year == 2025 & week >= 24) | (Year == 2026 & week <= 22)) |>
     pivot_longer(all_of(age_levels), names_to = "age_group", values_to = "cases") |>
     mutate(cases = ifelse(is.na(cases), 0, cases))
 
-  week_grid <- bind_rows(tibble(Year = 2025L, week = 23:53),
+  week_grid <- bind_rows(tibble(Year = 2025L, week = 24:53),
                          tibble(Year = 2026L, week = 1:22)) |>
     arrange(Year, week) |>
     mutate(week_index = row_number(),

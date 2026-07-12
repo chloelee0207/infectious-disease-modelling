@@ -144,10 +144,13 @@ cat(sprintf("Population growth rate r = %.5f /yr; total pop 2022 = %d -> 2025 = 
 pct_immune <- 100 * sum(R_init_prop * N) / sum(N)
 cat(sprintf("Total population already immune at start: %.1f%%\n", pct_immune))
 
+n_sus <- sum(N) - sum(R_init_prop * N)
+cat(sprintf("Total population susceptible: %.1f\n", n_sus))
+
 # Observed weekly cases: age-stratified SINAN download ("ca_combined" sheet), loaded
 # via the shared loader in ca_common.R (single source of truth, also used by
-# weekly_age_stratified.R). Window 2025-W23 -> 2026-W22 = 53 weeks (2025 has an epi
-# Semana 53), one more than the older plain weekly_all series (weekly_case.R).
+# weekly_age_stratified.R). Window 2025-W24 -> 2026-W22 = 52 weeks (2025 has an epi
+# Semana 53, so 2025 contributes W24..W53 = 30 weeks; 2025-W23 is excluded).
 ca_cases       <- load_caldas_age_cases()
 caldas_obs     <- ca_cases$caldas_obs
 observed_cases <- ca_cases$observed_cases
@@ -155,7 +158,7 @@ ca_age         <- ca_cases$ca_age          # age x week (for the age-stratified 
 age_totals     <- ca_cases$age_totals      # observed cases by age group
 obs_band_prop  <- ca_cases$obs_band_prop   # observed case share across the 9 CFR bands
 T_weeks <- length(observed_cases)
-stopifnot(T_weeks == 53, sum(observed_cases) == 8209)
+stopifnot(T_weeks == 52, sum(observed_cases) == 8204)
 
 # Fixed parameters
 sigma     <- 1 / 0.60
@@ -172,7 +175,7 @@ prop_symp <- 0.5242478
 rho_fixed <- 0.40
 
 # Initial conditions (back-calculated from observed week-1 reported cases, frozen).
-# We capture the outbreak FROM ITS START (2025-W23, a low baseline before take-off),
+# We capture the outbreak FROM ITS START (2025-W24, a low baseline before take-off),
 # so the epidemic is NOT already running: we seed a small infectious stock I0 from the
 # week-1 reported count and start with no exposed (E0 = 0), letting the SEIR spin the
 # epidemic up naturally.
@@ -211,7 +214,7 @@ df_choice <- 5
 # spline declines smoothly (R0 ~1.2 by 2026-W22, no curl-up) and even matches the
 # observed peak exactly -- so the flat-hold is no longer needed. make_beta_t() reduces
 # to a plain full-window spline when active_weeks == T_weeks.
-#   2025-W23 = index 1 ; 2026-W09 (case peak) = index 40 ; 2026-W22 = index 53.
+#   2025-W24 = index 1 ; 2026-W09 (case peak) = index 39 ; 2026-W22 = index 52.
 active_weeks <- T_weeks
 
 #     Lognormal prior (regularisation) on weekly beta_t, in the spirit of Hyolim's
@@ -314,7 +317,7 @@ build_basis <- function(df) ns(seq_len(active_weeks), df = df, intercept = TRUE)
 
 # Fit the model for a given spline df, using 3 starting beta shapes (multistart) and
 # keeping the best. Sets the GLOBAL basis_full so make_beta_t() uses the matching
-# basis. No Hyolim reference is used: the case curve rises from the 2025-W23 seed to
+# basis. No Hyolim reference is used: the case curve rises from the 2025-W24 seed to
 # a peak then decays, so a beta that starts moderate, rises, then falls is reasonable.
 fit_for_df <- function(df) {
   basis_full <<- build_basis(df)   # global, matched to this df, over active window
@@ -394,7 +397,7 @@ best_beta_t <- make_beta_t(best_coefs)
 
 # ---- Export the fitted weekly transmission rate beta_t for downstream models ----
 # (e.g. MAYV_ca_pre_vacc.R: replaces the hard-coded season_mean1). The MAYV window is
-# aligned to this one (2025-W23 -> 2026-W22), so index t maps 1:1; MAYV uses a
+# aligned to this one (2025-W24 -> 2026-W22), so index t maps 1:1; MAYV uses a
 # mean-normalised seasonal SHAPE (it rescales by R0 * gamma), so we also export that.
 beta_season_shape <- best_beta_t / mean(best_beta_t)   # mean = 1: drop-in for season_mean1
 saveRDS(best_beta_t,       "caldas_beta_fitted.rds")   # absolute fitted beta_t (length T_weeks)
@@ -477,7 +480,7 @@ cat(sprintf("Outbreak attack rate (of initially susceptible): %.1f%%\n", attack_
 # ------------------------------------------------------------
 # 7. Plots
 # ------------------------------------------------------------
-# Shared x-axis ticks for the 2025-W23 -> 2026-W22 window: week 30, 40, 50 (2025),
+# Shared x-axis ticks for the 2025-W24 -> 2026-W22 window: week 30, 40, 50 (2025),
 # the 2026 boundary, then week 10, 20 (2026).
 x_ticks <- caldas_obs |>
   filter((Year == 2025 & week %in% c(30, 40, 50)) |
@@ -489,7 +492,7 @@ year_break <- mean(c(max(caldas_obs$week_index[caldas_obs$Year == 2025]),
 par(mfrow = c(2, 1), mar = c(4, 4, 2, 1))
 plot(weeks, best_beta_t, type = "l", lwd = 2, col = "#d6604d",
      xlab = "Week", ylab = expression(beta[t]),
-     main = "Fitted Caldas Novas beta_t (2025-W23 to 2026-W22)",
+     main = "Fitted Caldas Novas beta_t (2025-W24 to 2026-W22)",
      xaxt = "n")
 axis(1, at = x_ticks$week_index, labels = x_ticks$week)
 abline(v = year_break, lty = 2, col = "grey50")

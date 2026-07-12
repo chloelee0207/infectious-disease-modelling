@@ -268,7 +268,7 @@ notes <- data.frame(
                 "Start week_index: actual rollout",
                 "Start week_index: start of 2026",
                 "Start week_index: pre-outbreak"),
-  value = c(sprintf("2025-W23 -> 2026-W22 (%d weeks)", T_weeks),
+  value = c(sprintf("2025-W24 -> 2026-W22 (%d weeks)", T_weeks),
             format(sum(observed_cases), big.mark = ","),
             sprintf("%.2f", best_rho),
             sprintf("%.3f", ixchiq_efficacy),

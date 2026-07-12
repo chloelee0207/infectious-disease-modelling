@@ -145,7 +145,7 @@ notes <- data.frame(
                 "95% UI source",
                 "Pre-outbreak campaign start (week_index)",
                 "Wet-season seed (week_index)"),
-  value = c(sprintf("2025-W23 -> 2026-W22 (%d weeks)", T_weeks),
+  value = c(sprintf("2025-W24 -> 2026-W22 (%d weeks)", T_weeks),
             sprintf("%.2f / %.2f", R0_central, future_R0),
             "Disease-blocking only",
             "0% (VE_inf = 0 in every scenario -> infections never averted)",
