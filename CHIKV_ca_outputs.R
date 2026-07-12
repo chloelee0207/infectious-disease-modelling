@@ -155,9 +155,13 @@ cat("Wrote CHIKV_ca_vacc_outputs_52.xlsx (sheets:", paste(names(sheets_52), coll
 # ------------------------------------------------------------
 scen_cols <- c("No vaccination"="grey55", "Disease-blocking"="#4393c3",
                "Disease + infection blocking"="#d6604d")
+# TRUE symptomatic (solid, with ribbon) and REPORTED = rho_i * symptomatic (dotted).
 band <- function(nm, lab) {
-  q <- apply(wk_symp[[nm]], 2, quantile, c(.025,.5,.975), na.rm=TRUE)
-  data.frame(week=1:T_sim, lo=q[1,], med=q[2,], hi=q[3,], scenario=lab)
+  qt <- apply(wk_symp[[nm]],          2, quantile, c(.025,.5,.975), na.rm=TRUE)
+  qr <- apply(wk_symp[[nm]] * rho_i,  2, quantile, c(.025,.5,.975), na.rm=TRUE)
+  rbind(
+    data.frame(week=1:T_sim, lo=qt[1,], med=qt[2,], hi=qt[3,], scenario=lab, measure="True symptomatic"),
+    data.frame(week=1:T_sim, lo=qr[1,], med=qr[2,], hi=qr[3,], scenario=lab, measure="Reported"))
 }
 pct_of <- function(nm) sprintf("%.1f%% (%.1f-%.1f%%)",
   100*median(av[[nm]][,"symptomatic"]/base_true[,"symptomatic"]),
@@ -169,6 +173,7 @@ make_epicurve <- function(tn) {
   pdf <- rbind(band("No vaccine (baseline)","No vaccination"),
                band(disb,"Disease-blocking"), band(both,"Disease + infection blocking"))
   pdf$scenario <- factor(pdf$scenario, levels=names(scen_cols))
+  pdf$measure  <- factor(pdf$measure, levels=c("True symptomatic","Reported"))
   roll0 <- timings[[tn]] + 2; roll1 <- roll0 + 10   # median deploy delay + 10-wk rollout
   lab <- paste0("% symptomatic reduction:\nDisease-blocking: ", pct_of(disb),
                 "\nDisease + infection blocking: ", pct_of(both))
@@ -176,14 +181,16 @@ make_epicurve <- function(tn) {
     annotate("rect", xmin=roll0, xmax=roll1, ymin=-Inf, ymax=Inf, fill="#3a7d3a", alpha=.10) +
     geom_vline(xintercept=year_break, linetype="dashed", colour="grey60") +
     geom_vline(xintercept=T_data+0.5, linetype="dotted", colour="grey60") +
-    geom_ribbon(aes(ymin=lo, ymax=hi), alpha=.18, colour=NA) + geom_line(linewidth=.9) +
+    geom_ribbon(data=subset(pdf, measure=="True symptomatic"), aes(ymin=lo, ymax=hi), alpha=.18, colour=NA) +
+    geom_line(aes(linetype=measure), linewidth=.9) +
     annotate("text", x=Inf, y=Inf, label=lab, hjust=1.02, vjust=1.2, size=2.7, lineheight=.95) +
     scale_colour_manual(values=scen_cols, aesthetics=c("colour","fill")) +
+    scale_linetype_manual(values=c("True symptomatic"="solid","Reported"="dotted"), name=NULL) +
     scale_x_continuous(breaks=x_breaks, labels=x_labs) +
     scale_y_continuous(labels=scales::comma) +
     labs(x="Week", y="Predicted symptomatic CHIKV cases", colour=NULL, fill=NULL,
          title=paste0("Caldas Novas CHIKV: symptomatic cases at 30% coverage - ", tn),
-         caption=sprintf("Green = rollout window; dotted = end of observed data (wk %d); band = 95%% UI over LHS draws", T_data)) +
+         caption=sprintf("Green = rollout window; grey dotted = end of observed data (wk %d); solid = true, dotted = reported (rho x symptomatic); band = 95%% UI", T_data)) +
     theme_bw(11) + theme(legend.position="bottom", plot.title=element_text(face="bold"),
                          panel.grid.minor=element_blank())
 }
