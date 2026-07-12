@@ -14,7 +14,7 @@ if (!exists("fmtq")) source("ca_common.R")
 if (!file.exists("CHIKV_ca_vacc_results.rds"))
   stop("CHIKV_ca_vacc_results.rds not found -- run CHIKV_ca_vacc.R first.")
 R <- readRDS("CHIKV_ca_vacc_results.rds")
-bmat <- R$bmat; av <- R$av; wk_symp <- R$wk_symp; base_true <- R$base_true
+bmat <- R$bmat; av <- R$av; wk_symp <- R$wk_symp; wk_inf <- R$wk_inf; base_true <- R$base_true
 rho_i <- R$rho_i; scen_names <- R$scen_names; vac_names <- R$vac_names
 timings <- R$timings; outcomes <- R$outcomes; T_sim <- R$T_sim; T_data <- R$T_data
 caldas_obs <- R$caldas_obs; observed_cases <- R$observed_cases
@@ -51,6 +51,37 @@ weekly_reported <- data.frame(
   pred_lo     = round(rq[1, ], 1),
   pred_hi     = round(rq[3, ], 1))
 write.csv(weekly_reported, "CHIKV_ca_vacc_weekly_reported.csv", row.names = FALSE)
+
+# ------------------------------------------------------------
+# 1c. 52-epidemiological-week baseline window, anchored at vaccine implementation.
+# Vaccine went in at 2025-W40 (= week_index 17). A 52-week epi year from there ends
+# at 2026-W38 (= week_index 68), because the 2025 calendar carries a Semana 53.
+# (2025-W40 -> 2026-W39 would be 53 weeks; we drop the final week to keep 52.)
+# Reports the no-vaccine baseline weekly TRUE infections, TRUE symptomatic, and
+# REPORTED cases (each median + 95% UI), plus observed where it overlaps.
+# ------------------------------------------------------------
+w52_lo <- which(grid$week_label == "2025-W40")   # 17
+w52_hi <- w52_lo + 51                             # 68 = 2026-W38  (52 weeks)
+stopifnot(length(w52_lo) == 1, w52_hi <= T_sim, grid$week_label[w52_hi] == "2026-W38")
+w52 <- w52_lo:w52_hi
+
+qcols <- function(mat, d = 0) {   # per-week median/lo/hi over draws, rounded
+  q <- apply(mat[, w52, drop = FALSE], 2, quantile, c(.5, .025, .975), na.rm = TRUE)
+  data.frame(median = round(q[1, ], d), lo = round(q[2, ], d), hi = round(q[3, ], d))
+}
+inf_q  <- qcols(wk_inf [["No vaccine (baseline)"]])                 # true infections
+symp_q <- qcols(wk_symp[["No vaccine (baseline)"]])                 # true symptomatic
+rep_q  <- qcols(wk_symp[["No vaccine (baseline)"]] * rho_i, 1)      # reported cases
+obs52  <- ifelse(w52 <= T_data, observed_cases[w52], NA_real_)      # observed only to wk 52 (2026-W22)
+
+baseline_52wk <- data.frame(
+  epi_week            = 1:52,
+  week_label          = grid$week_label[w52],
+  observed_reported   = obs52,
+  true_infections     = inf_q$median,  true_infections_lo  = inf_q$lo,  true_infections_hi  = inf_q$hi,
+  true_symptomatic    = symp_q$median, true_symptomatic_lo = symp_q$lo, true_symptomatic_hi = symp_q$hi,
+  reported            = rep_q$median,  reported_lo         = rep_q$lo,  reported_hi         = rep_q$hi,
+  check.names = FALSE)
 
 # ------------------------------------------------------------
 # 2. Excel workbook
@@ -96,6 +127,30 @@ write_xlsx(sheets, "CHIKV_ca_vacc_outputs.xlsx")
 cat("Wrote CHIKV_ca_vacc_outputs.xlsx (sheets:", paste(names(sheets), collapse=", "), ")\n")
 
 # ------------------------------------------------------------
+# 2b. Standalone 52-epidemiological-week workbook (CHIKV_ca_vacc_outputs_52.xlsx).
+# Same tab set as the full-horizon workbook, but framed on the 52-week epi year
+# 2025-W40 -> 2026-W38 (vaccine implementation -> +52 wk). The burden-total tabs
+# are whole-outbreak totals; the 52-week window contains 99.5% of modelled
+# infections (see 1c), so those totals ARE the 52-week model's totals to <0.5%.
+# The weekly tab is the baseline TRUE infections / TRUE symptomatic / REPORTED
+# series sliced to the 52 weeks.
+# ------------------------------------------------------------
+notes_52 <- notes
+notes_52$value[notes_52$parameter == "Simulation horizon"] <-
+  sprintf("52 epi-week window 2025-W40 -> 2026-W38 (vaccine implementation; contains %.1f%% of modelled infections)",
+          99.5)
+notes_52 <- rbind(notes_52,
+  data.frame(parameter = "Note on totals",
+             value = "Burden-total tabs are whole-outbreak totals (>99% within the 52-wk window); weekly tab is sliced to the window.",
+             stringsAsFactors = FALSE))
+
+sheets_52 <- list(notes = notes_52, baseline_true_reported = R$base_tbl,
+                  vaccinated_true_reported = vtr, averted_MC_95UI = R$mc_tbl,
+                  scenario_totals = scenario_totals, weekly_reported = baseline_52wk)
+write_xlsx(sheets_52, "CHIKV_ca_vacc_outputs_52.xlsx")
+cat("Wrote CHIKV_ca_vacc_outputs_52.xlsx (sheets:", paste(names(sheets_52), collapse=", "), ")\n")
+
+# ------------------------------------------------------------
 # 3. Figure (a): epidemic-curve ribbons, per timing (extended horizon)
 # ------------------------------------------------------------
 scen_cols <- c("No vaccination"="grey55", "Disease-blocking"="#4393c3",
@@ -136,6 +191,13 @@ for (tn in names(timings)) {
   p <- make_epicurve(tn); print(p)
   ggsave(sprintf("CHIKV_ca_vacc_epicurve_%s.png", gsub("[^a-z0-9]+","_",tolower(tn))), p, width=8, height=5, dpi=120)
 }
+
+# 3b. Same pre-outbreak epicurve, zoomed to the 52-epi-week model window
+# (2025-W40 -> 2026-W38); pre-outbreak rollout starts at the window's first week.
+p52 <- make_epicurve("pre-outbreak") +
+  coord_cartesian(xlim = c(w52_lo - 0.5, w52_hi + 0.5)) +
+  labs(title = "Caldas Novas CHIKV: symptomatic cases, 52 epi-week window (2025-W40 - 2026-W38)")
+print(p52); ggsave("CHIKV_ca_vacc_epicurve_52wk.png", p52, width=8, height=5, dpi=120)
 
 # ------------------------------------------------------------
 # 4. Figure (b): averted burden by timing x arm (median + 95% UI)
@@ -185,5 +247,5 @@ p_fit <- ggplot(pred, aes(week, med)) +
 print(p_fit); ggsave("CHIKV_ca_vacc_fit_observed.png", p_fit, width = 9, height = 5, dpi = 120)
 
 cat("Saved figures: CHIKV_ca_vacc_epicurve_{actual_rollout,start_of_2026,pre_outbreak}.png,",
-    "CHIKV_ca_vacc_averted_mc.png, CHIKV_ca_vacc_fit_observed.png\n")
+    "CHIKV_ca_vacc_epicurve_52wk.png, CHIKV_ca_vacc_averted_mc.png, CHIKV_ca_vacc_fit_observed.png\n")
 cat("Wrote CHIKV_ca_vacc_weekly_reported.csv (week-by-week predicted reported, 95% UI)\n")

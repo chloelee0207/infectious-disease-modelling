@@ -187,6 +187,7 @@ delay_d <- 1 + round(2 * Uv[,4])                 # {1,2,3}, median 2
 bmat <- setNames(lapply(scen_names, function(x) matrix(NA_real_, n_draws, 5,
                   dimnames=list(NULL, c(outcomes,"reported")))), scen_names)
 wk_symp <- setNames(lapply(scen_names, function(x) matrix(NA_real_, n_draws, T_sim)), scen_names)
+wk_inf  <- setNames(lapply(scen_names, function(x) matrix(NA_real_, n_draws, T_sim)), scen_names)
 
 cat("Running", n_draws, "draws (7 scenarios each, extended horizon)...\n")
 for (i in 1:n_draws) {
@@ -203,6 +204,7 @@ for (i in 1:n_draws) {
              E$rho[i], target_age, covv, deliv_d[i], st, vi, vb, immun_delay, prop_symp=E$prop_symp[i])
     bmat[[s$name]][i,] <- c(burden(out, hosp_i, cfr_i, age_weight), rho=E$rho[i]*sum(out$new_symptomatic))
     wk_symp[[s$name]][i,] <- colSums(out$new_symptomatic)
+    wk_inf[[s$name]][i,]  <- colSums(out$new_infections)
   }
   if (i %% 100 == 0) cat("  ", i, "/", n_draws, "\n")
 }
@@ -235,7 +237,7 @@ mc_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
 cat("\n=== Averted vs no-vaccine baseline (median, 95% UI) ===\n")
 old_w<-getOption("width"); options(width=250); print(mc_tbl, row.names=FALSE); options(width=old_w)
 
-saveRDS(list(bmat=bmat, av=av, wk_symp=wk_symp, base_true=base_true, rho_i=rho_i,
+saveRDS(list(bmat=bmat, av=av, wk_symp=wk_symp, wk_inf=wk_inf, base_true=base_true, rho_i=rho_i,
              scen=scen, scen_names=scen_names, vac_names=vac_names, timings=timings,
              outcomes=outcomes, T_sim=T_sim, T_data=T_data, caldas_obs=caldas_obs,
              observed_cases=observed_cases, base_tbl=base_tbl, mc_tbl=mc_tbl,
