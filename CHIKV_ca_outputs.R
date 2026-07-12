@@ -34,6 +34,23 @@ x_breaks <- sapply(tick_specs, function(s) { j <- which(grid$Year==s[1] & grid$w
 x_labs   <- sapply(tick_specs, function(s) s[2])
 keep <- !is.na(x_breaks); x_breaks <- x_breaks[keep]; x_labs <- x_labs[keep]
 year_break <- mean(c(max(which(grid$Year==2025)), min(which(grid$Year==2026))))
+grid$week_label <- sprintf("%d-W%02d", grid$Year, grid$wk)
+
+# ------------------------------------------------------------
+# 1b. Baseline (no-vaccine) weekly REPORTED cases over the full horizon.
+# wk_symp holds per-draw weekly TRUE symptomatic; reported = rho_i * true (rho_i
+# recycles down the columns, so row i is scaled by that draw's reporting rate).
+# ------------------------------------------------------------
+rep_mat <- wk_symp[["No vaccine (baseline)"]] * rho_i
+rq <- apply(rep_mat, 2, quantile, c(.025, .5, .975), na.rm = TRUE)
+weekly_reported <- data.frame(
+  week_index  = 1:T_sim,
+  week_label  = grid$week_label,
+  observed    = c(observed_cases, rep(NA_real_, T_sim - T_data)),
+  pred_median = round(rq[2, ], 1),
+  pred_lo     = round(rq[1, ], 1),
+  pred_hi     = round(rq[3, ], 1))
+write.csv(weekly_reported, "CHIKV_ca_vacc_weekly_reported.csv", row.names = FALSE)
 
 # ------------------------------------------------------------
 # 2. Excel workbook
@@ -74,7 +91,7 @@ notes <- data.frame(
 
 sheets <- list(notes = notes, baseline_true_reported = R$base_tbl,
                vaccinated_true_reported = vtr, averted_MC_95UI = R$mc_tbl,
-               scenario_totals = scenario_totals)
+               scenario_totals = scenario_totals, weekly_reported = weekly_reported)
 write_xlsx(sheets, "CHIKV_ca_vacc_outputs.xlsx")
 cat("Wrote CHIKV_ca_vacc_outputs.xlsx (sheets:", paste(names(sheets), collapse=", "), ")\n")
 
@@ -146,4 +163,27 @@ p_bar <- ggplot(mc_long, aes(timing, med, fill=arm)) +
                        legend.position="bottom", panel.grid.minor=element_blank())
 print(p_bar); ggsave("CHIKV_ca_vacc_averted_mc.png", p_bar, width=10, height=4.2, dpi=120)
 
-cat("Saved figures: CHIKV_ca_vacc_epicurve_{actual_rollout,start_of_2026,pre_outbreak}.png, CHIKV_ca_vacc_averted_mc.png\n")
+# ------------------------------------------------------------
+# 5. Figure (c): baseline observed vs predicted reported cases, full horizon.
+# Overlays the observed weekly reported dots on the no-vaccine predicted median +
+# 95% UI so the tail (weeks 53..78, past end of data) can be inspected directly.
+# ------------------------------------------------------------
+pred <- data.frame(week = 1:T_sim, lo = rq[1, ], med = rq[2, ], hi = rq[3, ])
+obs  <- data.frame(week = 1:T_data, cases = observed_cases)
+p_fit <- ggplot(pred, aes(week, med)) +
+  geom_vline(xintercept = year_break, linetype = "dashed", colour = "grey60") +
+  geom_vline(xintercept = T_data + 0.5, linetype = "dotted", colour = "grey60") +
+  geom_ribbon(aes(ymin = lo, ymax = hi), fill = "#4393c3", alpha = .20) +
+  geom_line(colour = "#2166ac", linewidth = .9) +
+  geom_point(data = obs, aes(week, cases), inherit.aes = FALSE, size = 1.3, colour = "grey20") +
+  scale_x_continuous(breaks = x_breaks, labels = x_labs) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x = "Week", y = "Reported CHIKV cases", colour = NULL,
+       title = "Caldas Novas CHIKV: observed vs predicted reported cases (no vaccine)",
+       caption = sprintf("Dots = observed; line = median, band = 95%% UI over LHS draws; dashed = year boundary; dotted = end of data (wk %d)", T_data)) +
+  theme_bw(11) + theme(plot.title = element_text(face = "bold"), panel.grid.minor = element_blank())
+print(p_fit); ggsave("CHIKV_ca_vacc_fit_observed.png", p_fit, width = 9, height = 5, dpi = 120)
+
+cat("Saved figures: CHIKV_ca_vacc_epicurve_{actual_rollout,start_of_2026,pre_outbreak}.png,",
+    "CHIKV_ca_vacc_averted_mc.png, CHIKV_ca_vacc_fit_observed.png\n")
+cat("Wrote CHIKV_ca_vacc_weekly_reported.csv (week-by-week predicted reported, 95% UI)\n")
