@@ -180,7 +180,7 @@ make_epicurve <- function(tn) {
   ggplot(pdf, aes(week, med, colour=scenario, fill=scenario)) +
     annotate("rect", xmin=roll0, xmax=roll1, ymin=-Inf, ymax=Inf, fill="#3a7d3a", alpha=.10) +
     geom_vline(xintercept=year_break, linetype="dashed", colour="grey60") +
-    geom_vline(xintercept=T_data+0.5, linetype="dotted", colour="grey60") +
+    # geom_vline(xintercept=T_data+0.5, linetype="dotted", colour="grey60") +
     geom_ribbon(data=subset(pdf, measure=="True symptomatic"), aes(ymin=lo, ymax=hi), alpha=.18, colour=NA) +
     geom_line(aes(linetype=measure), linewidth=.9) +
     annotate("text", x=Inf, y=Inf, label=lab, hjust=1.02, vjust=1.2, size=2.7, lineheight=.95) +
@@ -188,9 +188,9 @@ make_epicurve <- function(tn) {
     scale_linetype_manual(values=c("True symptomatic"="solid","Reported"="dotted"), name=NULL) +
     scale_x_continuous(breaks=x_breaks, labels=x_labs) +
     scale_y_continuous(labels=scales::comma) +
-    labs(x="Week", y="Predicted symptomatic CHIKV cases", colour=NULL, fill=NULL,
+    labs(x="Week", y="Predicted symptomatic cases", colour=NULL, fill=NULL,
          title=paste0("Caldas Novas CHIKV: symptomatic cases at 30% coverage - ", tn),
-         caption=sprintf("Green = rollout window; grey dotted = end of observed data (wk %d); solid = true, dotted = reported (rho x symptomatic); band = 95%% UI", T_data)) +
+         caption=sprintf("Green = vaccination rollout window; band = 95%% UI", T_data)) +
     theme_bw(11) + theme(legend.position="bottom", plot.title=element_text(face="bold"),
                          panel.grid.minor=element_blank())
 }
@@ -203,7 +203,7 @@ for (tn in names(timings)) {
 # (2025-W40 -> 2026-W38); pre-outbreak rollout starts at the window's first week.
 p52 <- make_epicurve("pre-outbreak") +
   coord_cartesian(xlim = c(w52_lo - 0.5, w52_hi + 0.5)) +
-  labs(title = "Caldas Novas CHIKV: symptomatic cases, 52 epi-week window (2025-W40 - 2026-W38)")
+  labs(title = "Caldas Novas CHIKV symptomatic cases (2025-W40 - 2026-W38)")
 print(p52); ggsave("CHIKV_ca_vacc_epicurve_52wk.png", p52, width=8, height=5, dpi=120)
 
 # ------------------------------------------------------------
