@@ -123,11 +123,11 @@ export <- severity_tab |>
                 hosp_med, hosp_lo, hosp_hi,
                 deaths_hosp_med, deaths_hosp_lo, deaths_hosp_hi,
                 deaths_total_med, deaths_total_lo, deaths_total_hi)
-write.csv(export, "caldas_severity_by_age.csv", row.names = FALSE)
+write.csv(export, "CHIKV_ca_severity_by_age.csv", row.names = FALSE)
 if (requireNamespace("writexl", quietly = TRUE))
-  writexl::write_xlsx(list(severity_by_age = export), "caldas_severity_by_age.xlsx")
-cat("\nWrote caldas_severity_by_age.csv",
-    if (requireNamespace("writexl", quietly = TRUE)) "and caldas_severity_by_age.xlsx" else "", "\n")
+  writexl::write_xlsx(list(severity_by_age = export), "CHIKV_ca_severity_by_age.xlsx")
+cat("\nWrote CHIKV_ca_severity_by_age.csv",
+    if (requireNamespace("writexl", quietly = TRUE)) "and CHIKV_ca_severity_by_age.xlsx" else "", "\n")
 
 # ----------------------------------------------------------------------------
 # True number of infections (under-ascertainment correction)
@@ -183,7 +183,7 @@ caldas_weekly <- ggplot(ca_total, aes(x = week_index, y = tot_cases)) +
         panel.grid.minor = element_blank())
 
 print(caldas_weekly)
-ggsave("caldas_weekly.png", caldas_weekly, width = 9, height = 5, dpi = 120)
+ggsave("CHIKV_ca_weekly.png", caldas_weekly, width = 9, height = 5, dpi = 120)
 
 # ---- Plot 2: weekly cases stacked by age group ----
 caldas_age <- ggplot(ca_age, aes(x = week_index, y = cases, fill = age_group)) +
@@ -200,7 +200,7 @@ caldas_age <- ggplot(ca_age, aes(x = week_index, y = cases, fill = age_group)) +
         panel.grid.minor = element_blank())
 
 print(caldas_age)
-# ggsave("caldas_weekly_age.png", caldas_age, width = 9, height = 4.5, dpi = 120)
+# ggsave("CHIKV_ca_weekly_age.png", caldas_age, width = 9, height = 4.5, dpi = 120)
 
 # ============================================================================
 # SENSE CHECK: expected CHIKV deaths in Caldas Novas via the Goias state CFR

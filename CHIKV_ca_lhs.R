@@ -1,9 +1,11 @@
 # ============================================================
 # Caldas Novas CHIKV — full uncertainty propagation (self-contained).
 #
-# Propagates FOUR uncertain inputs through the age-structured SEIR fit:
-#     gamma (recovery rate), sigma (latent rate), rho (reporting rate),
-#     FOI  (long-term force of infection -> age-specific prior immunity).
+# Propagates FIVE uncertain inputs through the age-structured SEIR fit:
+#     gamma (recovery rate), sigma (latent rate), rho (reporting rate, Beta(20,60)),
+#     prop_symp (symptomatic fraction), FOI (long-term force of infection ->
+#     age-specific prior immunity). Note the fit only sees rho*prop_symp, so prop_symp
+#     mainly widens the TRUE-infection iceberg (symptomatic/hosp/deaths anchor at obs/rho).
 # For each Latin-Hypercube draw we RE-FIT the beta-spline + theta, so the final
 # R0 / attack-rate / infection / beta bands carry all four sources of uncertainty
 # instead of the fixed point values used in the point-estimate fit.
@@ -104,16 +106,16 @@ year_break<- mean(c(max(caldas_obs$week_index[caldas_obs$Year==2025]), min(calda
 # ------------------------------------------------------------
 cfl <- function(v) coef(lm(v ~ basis_full - 1))
 gen_start <- c(cfl(log(c(seq(1.0,2.2,length.out=peak_idx), seq(2.2,0.5,length.out=active_weeks-peak_idx)))), log(50))
-refit <- function(foi, g, s, r, start) {
+refit <- function(foi, g, s, r, ps, start) {
   Rimm <- 1 - exp(-foi * age_mid)                          # age-specific prior immunity (catalytic model)
   pool <- sum(N * (1 - Rimm)); sfrac <- (N*(1-Rimm))/pool
-  I0i  <- round(((week_1_cases/r/prop_symp)/g) * sfrac)     # seed depends on rho, gamma, immunity
+  I0i  <- round(((week_1_cases/r/ps)/g) * sfrac)            # seed depends on rho, gamma, prop_symp, immunity
   nll  <- function(par) neg_log_lik(par, observed_cases, T_weeks, df_spline, A, N, Rimm,
-                                    I0i, s, g, prop_symp, r, E0)
+                                    I0i, s, g, ps, r, E0)
   f <- tryCatch(optim(start, nll, method="BFGS", control=list(maxit=900)), error=function(e) NULL)
   if (is.null(f)) return(NULL)
   bt <- make_beta_t(f$par[1:df_spline])
-  o  <- seir_baseline(T_weeks,A,N,Rimm,I0i,bt,s,g,r,prop_symp,E0=E0)
+  o  <- seir_baseline(T_weeks,A,N,Rimm,I0i,bt,s,g,r,ps,E0=E0)
   list(par=f$par, beta=bt, pred=colSums(o$new_reported), inf=colSums(o$new_infections),
        R0=bt/g, attack=100*sum(o$new_infections)/pool, total=sum(colSums(o$new_reported)),
        pool=pool, immune=100*sum(Rimm*N)/sum(N))
@@ -130,16 +132,21 @@ gr<-row_for("gamma"); sr<-row_for("sigma"); rr<-row_for("reporting")
 g_m<-gr$Median; g_sd<-sd_of(gr)                 # gamma  (rate)
 p_m<-sr$Median; p_sd<-sd_of(sr)                 # latent PERIOD -> sigma = 1/period
 r_m<-rr$Median; r_sd<-sd_of(rr)
-rab <- {v<-r_sd^2; k<-r_m*(1-r_m)/v-1; c(a=r_m*k, b=(1-r_m)*k)}     # rho ~ Beta by moments
+# rho ~ Beta(20, 60): Hyolim's stated generative prior (mean 0.25, 95% ~0.162-0.350),
+# wider than the model_calibration.xlsx posterior. Point estimate uses the median 0.25.
+rab <- c(a = 20, b = 60)
 foi_med<-0.008; foi_lo<-0.003; foi_hi<-0.020                        # long-term average FOI (from serology)
 foi_mlog<-log(foi_med); foi_slog<-(log(foi_hi)-log(foi_lo))/(2*1.96)# FOI ~ Lognormal
-cat(sprintf("Samplers: gamma~N(%.3f,%.3f) latent~N(%.3f,%.3f) rho~Beta(%.1f,%.1f) FOI~logN(med %.3f, 95%%[%.3f,%.3f])\n",
-            g_m,g_sd,p_m,p_sd,rab["a"],rab["b"],foi_med,foi_lo,foi_hi))
+# prop_symp ~ Beta(35.84, 32.56): symptomatic fraction among infections (Hyolim Table S4 /
+# disease_progression.xlsx, median 0.524, 95% 0.406-0.641). Point estimate uses the median.
+ps_a <- 35.84; ps_b <- 32.56
+cat(sprintf("Samplers: gamma~N(%.3f,%.3f) latent~N(%.3f,%.3f) rho~Beta(%.1f,%.1f) FOI~logN(med %.3f, 95%%[%.3f,%.3f]) prop_symp~Beta(%.2f,%.2f)\n",
+            g_m,g_sd,p_m,p_sd,rab["a"],rab["b"],foi_med,foi_lo,foi_hi,ps_a,ps_b))
 
 # ------------------------------------------------------------
 # 6. Baseline at the median inputs (for the dashed reference)
 # ------------------------------------------------------------
-base <- refit(foi_med, 0.54, 1/0.60, 0.25, gen_start); warm <- base$par
+base <- refit(foi_med, 0.54, 1/0.60, 0.25, prop_symp, gen_start); warm <- base$par
 pk   <- which.max(base$beta)
 cat(sprintf("Baseline (median inputs): immune %.1f%% | R0 at peak %.2f | attack %.1f%% | total %.0f\n",
             base$immune, (base$beta/0.54)[pk], base$attack, base$total))
@@ -160,21 +167,22 @@ cat(sprintf("Log-likelihood: %.2f | k: %d | n: %d | AIC: %.2f | BIC: %.2f\n\n",
             base_ll, base_k, T_weeks, -2*base_ll + 2*base_k, -2*base_ll + base_k*log(T_weeks)))
 
 # ------------------------------------------------------------
-# 7. Latin Hypercube (4 inputs), re-fit each; feasibility handled by filtering
+# 7. Latin Hypercube (5 inputs), re-fit each; feasibility handled by filtering
 # ------------------------------------------------------------
 set.seed(2024); n <- 1000        # match the 1000 LHS draws used in the reference study
 lhs_col <- function(n) (sample.int(n)-runif(n))/n
-U   <- sapply(1:4, function(j) lhs_col(n))
+U   <- sapply(1:5, function(j) lhs_col(n))
 foi <- qlnorm(U[,1], foi_mlog, foi_slog)
 gam <- qnorm (U[,2], g_m, g_sd)
 sig <- 1/qnorm(U[,3], p_m, p_sd)
 rho <- qbeta (U[,4], rab["a"], rab["b"])
+psy <- qbeta (U[,5], ps_a, ps_b)                 # prop_symp per draw
 
 beta_mat <- pred_mat <- inf_mat <- r0_mat <- matrix(NA_real_, n, T_weeks)
 R0peak <- attack <- totrep <- immune <- loglik <- rep(NA_real_, n)
-cat("Re-fitting", n, "LHS draws (4 inputs)...\n")
+cat("Re-fitting", n, "LHS draws (5 inputs)...\n")
 for (i in 1:n) {
-  d <- tryCatch(refit(foi[i], gam[i], sig[i], rho[i], warm), error=function(e) NULL)
+  d <- tryCatch(refit(foi[i], gam[i], sig[i], rho[i], psy[i], warm), error=function(e) NULL)
   if (is.null(d)) next
   beta_mat[i,]<-d$beta; pred_mat[i,]<-d$pred; inf_mat[i,]<-d$inf; r0_mat[i,]<-d$R0
   R0peak[i]<-d$R0[pk]; attack[i]<-d$attack; totrep[i]<-d$total; immune[i]<-d$immune
@@ -224,13 +232,13 @@ save_band <- function(file, dfp, ytitle, ttl, add_dashed=NULL){
   if(!is.null(add_dashed)) g <- g + geom_line(data=add_dashed, aes(week,y), colour="#d6604d", linewidth=.8, linetype="dashed")
   ggsave(file, g, width=7.5, height=4.4, dpi=110)
 }
-save_band("ca_prop_beta.png", data.frame(week=weeks, lo=bb[1,], med=bb[2,], hi=bb[3,]),
+save_band("CHIKV_ca_prop_beta.png", data.frame(week=weeks, lo=bb[1,], med=bb[2,], hi=bb[3,]),
           expression(beta[t]), "Caldas Novas beta(t): propagated 95% band (all 4 inputs)",
           data.frame(week=weeks, y=base$beta))
-save_band("ca_prop_R0.png", data.frame(week=weeks, lo=r0b[1,], med=r0b[2,], hi=r0b[3,]),
+save_band("CHIKV_ca_prop_R0.png", data.frame(week=weeks, lo=r0b[1,], med=r0b[2,], hi=r0b[3,]),
           "R0(t) = beta/gamma", "Caldas Novas R0(t): propagated 95% band vs baseline (dashed)",
           data.frame(week=weeks, y=base$beta/0.54))
-ggsave("ca_prop_infections.png",
+ggsave("CHIKV_ca_prop_infections.png",
   ggplot(data.frame(week=weeks, lo=ib[1,], med=ib[2,], hi=ib[3,], rep=pb[2,], obs=observed_cases)) +
     geom_ribbon(aes(week, ymin=lo, ymax=hi), fill="#a8d1e7", alpha=.5) +
     geom_line(aes(week, med), colour="#3182bd", linewidth=1) +
@@ -239,7 +247,29 @@ ggsave("ca_prop_infections.png",
     labs(x="Week", y="Weekly cases", title="Caldas Novas: true infections (band) vs reported (coral/dots)") +
     theme_bw(12), width=7.5, height=4.4, dpi=110)
 
-write.csv(data.frame(draw=1:n, FOI=foi, gamma=gam, sigma=sig, rho=rho, immune_pct=immune,
-                     R0_peak=R0peak, attack_pct=attack, total_reported=totrep,
-                     feasible=(seq_len(n) %in% ok)), "ca_lhs_draws.csv", row.names=FALSE)
-cat("\nSaved ca_prop_beta.png, ca_prop_R0.png, ca_prop_infections.png, ca_lhs_draws.csv\n")
+write.csv(data.frame(draw=1:n, FOI=foi, gamma=gam, sigma=sig, rho=rho, prop_symp=psy,
+                     immune_pct=immune, R0_peak=R0peak, attack_pct=attack, total_reported=totrep,
+                     feasible=(seq_len(n) %in% ok)), "CHIKV_ca_lhs_draws.csv", row.names=FALSE)
+cat("\nSaved CHIKV_ca_prop_beta.png, CHIKV_ca_prop_R0.png, CHIKV_ca_prop_infections.png, CHIKV_ca_lhs_draws.csv\n")
+
+# ------------------------------------------------------------
+# 9. Export the FEASIBLE-draw ensemble for the standalone vaccine model.
+#    CHIKV_ca_vacc.R loads this RDS instead of depending on CHIKV_ca_pre_vacc_optim.R
+#    or re-running the 1000 refits. It carries all four calibration uncertainties
+#    (FOI -> immunity, gamma, sigma, rho ~ Beta(20,60)); the vaccine MC iterates over
+#    these draws and layers vaccine-parameter draws on top. The point estimate uses
+#    the median inputs (rho 0.25). Immunity Rimm and the seed I0 are recomputed per
+#    draw in the vaccine script from foi/gamma/rho (Rimm = 1 - exp(-foi * age_mid)).
+ca_lhs_ensemble <- list(
+  beta   = beta_mat[ok, , drop = FALSE],       # n_ok x T_weeks fitted beta_t per draw
+  gamma  = gam[ok], sigma = sig[ok], rho = rho[ok], foi = foi[ok], prop_symp = psy[ok],
+  base_beta = base$beta, base_rho = 0.25, base_foi = foi_med,
+  base_gamma = 0.54, base_sigma = 1/0.60, base_prop_symp = prop_symp,
+  N = N, A = A, age_mid = age_mid, age_df = age_df,
+  week_1_cases = week_1_cases,
+  T_weeks = T_weeks, observed_cases = observed_cases,
+  caldas_obs = caldas_obs, weeks = weeks, x_ticks = x_ticks, year_break = year_break
+)
+saveRDS(ca_lhs_ensemble, "CHIKV_ca_lhs_ensemble.rds")
+cat(sprintf("Saved CHIKV_ca_lhs_ensemble.rds (%d feasible draws) for the standalone vaccine model.\n",
+            length(ok)))

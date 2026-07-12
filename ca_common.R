@@ -67,7 +67,9 @@ load_burden_params <- function(A,
   dp <- read_excel(dp_path, sheet = dp_sheet)
   names(dp)[1:10] <- c("parameter", "group", "median", "ui_lo", "ui_hi",
                        "dist", "p1", "alpha", "p2", "beta")
-  stopifnot(all(dp$dist == "Beta"))
+  # Keep only the Beta severity rows; the sheet may also hold DALY inputs (illness
+  # durations, remaining life-years) with a Lognormal dist -- those are used elsewhere.
+  dp <- dp[dp$dist == "Beta", ]
 
   # Pull alpha/beta for rows matching an exact Parameter (+ optional Group regex),
   # ordered by the lower age bound when the Group is an "Age [lo, hi)" band.
