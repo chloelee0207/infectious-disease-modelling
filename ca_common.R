@@ -1,8 +1,8 @@
 # ============================================================
 # ca_common.R -- shared helpers for the Caldas Novas vaccination scripts
 # ------------------------------------------------------------
-# Single source of truth for code that was previously duplicated verbatim in
-# CHIKV_ca_vacc.R and MAYV_ca_vacc.R. Source it once near the top of each:
+# Single source of truth for code shared across the CHIKV engine (CHIKV_ca_engine.R)
+# and MAYV_ca_vacc.R. Source it once near the top of each:
 #     source("ca_common.R")
 # Provides:
 #   week_to_index()       calendar (year, epi-week) -> within-window index
@@ -187,4 +187,129 @@ compute_age_weight <- function(inf_age_model, obs_band_prop, age_to_band) {
   mod_prop <- mod_band / sum(mod_band)
   w_band   <- ifelse(mod_prop > 0, obs_band_prop / mod_prop, 1)
   w_band[age_to_band]
+}
+
+# ============================================================
+# Shared SEIRV engine + DALY parameter loader
+# ------------------------------------------------------------
+# Single source of truth for the age-structured weekly SEIRV simulator and the
+# disease-progression (DALY) parameter loader, previously copy-pasted verbatim into
+# CHIKV_ca_vacc.R, CHIKV_ca_daly.R and CHIKV_ca_nnv.R. The unified engine
+# (CHIKV_ca_engine.R) is the only caller now; the old standalone scripts still work
+# because they redefine identical locals after sourcing this file.
+# ============================================================
+
+# Age-structured weekly SEIRV with vaccination. Returns weekly age x week matrices
+# for infections and symptomatic, plus total_used_age (doses delivered per age = the
+# NNV numerator base). Two efficacy channels: VE_inf moves S->immune (infection
+# blocking); VE_block scales symptomatic among the covered (disease blocking).
+seirv_vaccinated <- function(
+    T_weeks, 
+    A, 
+    N, 
+    R_init_prop, 
+    I0, 
+    E0, 
+    base_beta, 
+    sigma, 
+    gamma, 
+    rho,
+    target_age, 
+    total_coverage, 
+    weekly_delivery_speed, 
+    delay,
+    VE_inf = 0,        # infection-blocking efficacy (S->immune); set per scenario by the engine
+    VE_block = 0,      # disease-blocking efficacy (down-scales symptomatic); set per scenario
+    immun_delay = 2, 
+    prop_symp = 0.5242478, 
+    sub_steps = 7) {
+  pmax0 <- function(x) pmax(0, x); N_total <- sum(N); dt <- 1/sub_steps
+  S <- E <- I <- R <- V <- matrix(0, A, T_weeks)
+  V_covered <- vacc_delayed <- coverage_frac <- matrix(0, A, T_weeks)
+  new_infections <- new_symptomatic <- matrix(0, A, T_weeks)
+  target_idx <- which(target_age == 1); target_pop <- sum(N[target_idx])
+  total_supply <- target_pop * total_coverage
+  weekly_dose_total <- total_supply * weekly_delivery_speed
+  total_avail_age <- rep(0, A); total_avail_age[target_idx] <- total_supply * (N[target_idx]/target_pop)
+  total_used_age <- rep(0, A); unvaccinated <- N
+  S_now <- pmax0(N - I0 - E0 - R_init_prop*N); E_now <- E0; I_now <- I0
+  R_now <- R_init_prop*N; V_now <- rep(0, A)
+  for (t in 1:T_weeks) {
+    prev_V_covered <- if (t > 1) V_covered[, t-1] else rep(0, A)
+    if (t - immun_delay >= 1) {
+      effective_dose <- vacc_delayed[, t-immun_delay]
+      immunized <- round(VE_inf * effective_dose)
+      V_covered[, t] <- prev_V_covered + effective_dose
+    } else { immunized <- rep(0, A); V_covered[, t] <- prev_V_covered }
+    S_now <- pmax0(S_now - immunized); V_now <- V_now + immunized
+    coverage_frac[, t] <- V_covered[, t] / N
+    if (t >= delay && target_pop > 0) {
+      rem <- weekly_dose_total
+      for (a in target_idx) {
+        alloc <- min(ceiling(weekly_dose_total*(N[a]/target_pop)), rem,
+                     unvaccinated[a], total_avail_age[a]-total_used_age[a])
+        if (alloc > 0) {
+          prop_S <- if (N[a] > 0) S_now[a]/N[a] else 0
+          vacc_to_S <- round(alloc*prop_S)
+          vacc_delayed[a, t] <- vacc_to_S
+          total_used_age[a] <- total_used_age[a] + alloc
+          unvaccinated[a] <- unvaccinated[a] - alloc; rem <- rem - alloc
+        }
+      }
+    }
+    new_I_week <- rep(0, A); beta_t <- base_beta[t]
+    for (k in 1:sub_steps) {
+      foi <- beta_t * sum(I_now)/N_total
+      new_E <- foi*S_now*dt; 
+      new_I <- sigma*E_now*dt; 
+      new_R <- gamma*I_now*dt
+      S_now <- pmax0(S_now-new_E); 
+      E_now <- pmax0(E_now+new_E-new_I)
+      I_now <- pmax0(I_now+new_I-new_R); 
+      R_now <- pmax0(R_now+new_R)
+      new_I_week <- new_I_week + new_I
+    }
+    S[,t]<-S_now; E[,t]<-E_now; I[,t]<-I_now; R[,t]<-R_now; V[,t]<-V_now
+    new_infections[,t] <- new_I_week
+    new_symptomatic[,t] <- prop_symp*new_I_week*(1 - VE_block*coverage_frac[,t])
+  }
+  list(new_infections=new_infections, 
+       new_symptomatic=new_symptomatic,
+       new_reported=rho*new_symptomatic, 
+       V_covered=V_covered, 
+       total_used_age=total_used_age)
+}
+
+# Read the DALY (disease-progression) distribution hyperparameters from
+# disease_progression.xlsx: disability weights (Beta), illness durations (Lognormal),
+# remaining life-years by decadal band (Lognormal), and 14d/90d recovery probabilities
+# by age class (Beta). Returns a named list of the a/b or m/s (+ median) hyperparams.
+load_daly_params <- function(dp_path = "disease_progression.xlsx",
+                             dp_sheet = "disease_progression") {
+  dp <- read_excel(dp_path, sheet = dp_sheet)
+  names(dp)[1:10] <- c("parameter","group","median","ui_lo","ui_hi","dist","p1","v1","p2","v2")
+  row <- function(param, grp = NULL) {
+    d <- dp[dp$parameter == param, ]
+    if (!is.null(grp)) d <- d[grepl(grp, d$group), ]
+    d
+  }
+  beta_ab  <- function(param, grp = NULL) { d <- row(param, grp); list(a = d$v1, b = d$v2) }
+  lnorm_ms <- function(param, grp = NULL) { d <- row(param, grp); list(m = d$v1, s = d$v2, med = d$median) }
+  dw_mm  <- beta_ab("Disability weight for mild and moderate chikungunya")
+  dw_sev <- beta_ab("Disability weight for severe chikungunya")
+  dw_chr <- beta_ab("Disability weight for chronic chikungunya")
+  du_mm  <- lnorm_ms("Duration of illness for mild and moderate chikungunya (years)")
+  du_sev <- lnorm_ms("Duration of illness for severe chikungunya (years)")
+  du_chr <- lnorm_ms("Duration of illness for chronic chikungunya (years)")
+  le <- row("Remaining life-years")
+  lo <- as.numeric(sub(".*\\[\\s*([0-9]+).*", "\\1", le$group)); le <- le[order(lo), ]
+  le_ms <- list(m = le$v1, s = le$v2, med = le$median)
+  stopifnot(length(le_ms$m) == 9)
+  p14_y <- beta_ab("Probability of recovery within 14 days after onset of symptoms", "< 40")
+  p14_o <- beta_ab("Probability of recovery within 14 days after onset of symptoms", "> 40")
+  p90_y <- beta_ab("Probability of recovery within 90 days after acute period", "< 40")
+  p90_o <- beta_ab("Probability of recovery within 90 days after acute period", "> 40")
+  list(dw_mm=dw_mm, dw_sev=dw_sev, dw_chr=dw_chr,
+       du_mm=du_mm, du_sev=du_sev, du_chr=du_chr, le=le_ms,
+       p14_y=p14_y, p14_o=p14_o, p90_y=p90_y, p90_o=p90_o)
 }

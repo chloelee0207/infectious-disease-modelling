@@ -1,23 +1,45 @@
 # ============================================================
-# CHIKV_ca_outputs.R -- Caldas Novas CHIKV presentation & export layer.
+# CHIKV_ca_outputs.R -- Caldas Novas CHIKV burden presentation & export layer.
 # ------------------------------------------------------------
-# Loads CHIKV_ca_vacc_results.rds (produced by CHIKV_ca_vacc.R, the standalone LHS-based
-# engine) and produces the figures + the Excel workbook. Pure presentation.
+# Reads CHIKV_ca_engine_results.rds (the unified single-LHS engine) and produces the
+# burden figures + Excel workbooks. Pure presentation -- no SEIR/MC of its own. The
+# burden totals here share the SAME per-draw propagation as the DALY and NNV outputs.
 #
-# Run order:  source("ca_common.R"); source("CHIKV_ca_lhs.R")   # ensemble (slow, once)
-#             source("CHIKV_ca_vacc.R")                          # engine -> CHIKV_ca_vacc_results.rds
-#             source("CHIKV_ca_outputs.R")                       # <- this file
+# Run order:  source("CHIKV_ca_engine.R")    # engine -> CHIKV_ca_engine_results.rds
+#             source("CHIKV_ca_outputs.R")   # <- this file
 # ============================================================
 library(dplyr); library(tidyr); library(ggplot2); library(writexl)
 if (!exists("fmtq")) source("ca_common.R")
 
-if (!file.exists("CHIKV_ca_vacc_results.rds"))
-  stop("CHIKV_ca_vacc_results.rds not found -- run CHIKV_ca_vacc.R first.")
-R <- readRDS("CHIKV_ca_vacc_results.rds")
-bmat <- R$bmat; av <- R$av; wk_symp <- R$wk_symp; wk_inf <- R$wk_inf; base_true <- R$base_true
-rho_i <- R$rho_i; scen_names <- R$scen_names; vac_names <- R$vac_names
-timings <- R$timings; outcomes <- R$outcomes; T_sim <- R$T_sim; T_data <- R$T_data
-caldas_obs <- R$caldas_obs; observed_cases <- R$observed_cases
+if (!file.exists("CHIKV_ca_engine_results.rds"))
+  stop("CHIKV_ca_engine_results.rds not found -- run CHIKV_ca_engine.R first.")
+G <- readRDS("CHIKV_ca_engine_results.rds")
+bmat <- G$per_draw; wk_symp <- G$wk_symp; wk_inf <- G$wk_inf; rho_i <- G$rho_i
+scen_names <- G$scen_names; vac_names <- G$vac_names
+timings <- G$timings; T_sim <- G$T_sim; T_data <- G$T_data
+caldas_obs <- G$caldas_obs; observed_cases <- G$observed_cases
+outcomes <- c("infections","symptomatic","hospitalisations","deaths")   # burden subset of OUTCOMES
+EXTEND   <- T_sim - T_data
+base_true <- bmat[["No vaccine (baseline)"]][, outcomes, drop = FALSE]
+
+# averted (baseline - scenario), per draw, for the burden outcomes (computed locally
+# so infections is included -- G$averted carries only the NNV outcomes).
+av <- setNames(lapply(vac_names, function(nm)
+  base_true - bmat[[nm]][, outcomes, drop = FALSE]), vac_names)
+
+# baseline true-vs-reported and averted-MC tables (built here; the engine stores raw draws)
+base_tbl <- do.call(rbind, lapply(outcomes, function(o) {
+  d <- if (o == "deaths") 1 else 0
+  data.frame(outcome = o, true = fmtq(base_true[,o], d), reported = fmtq(rho_i*base_true[,o], d))
+}))
+mc_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
+  m <- av[[nm]]
+  data.frame(timing = sub(" \\|.*","",nm), arm = sub(".*\\| ","",nm),
+             Infections = fmtq(m[,"infections"]), Symptomatic = fmtq(m[,"symptomatic"]),
+             Hospitalisations = fmtq(m[,"hospitalisations"],1), Deaths = fmtq(m[,"deaths"],2),
+             pct_symp = sprintf("%.1f%%", 100*median(m[,"symptomatic"]/base_true[,"symptomatic"], na.rm=TRUE)),
+             row.names = NULL)
+}))
 
 # ------------------------------------------------------------
 # 1. Full-horizon calendar axis (data weeks 1..52 + extension 53..T_sim)
@@ -97,8 +119,9 @@ vtr <- do.call(rbind, lapply(scen_names, function(nm) {
              reported = sapply(outcomes, function(o) fmtq(rho_i*m[,o],    if (o=="deaths") 1 else 0)),
              row.names = NULL)
 }))
-scenario_totals <- data.frame(scenario = rownames(R$pt_burden),
-                              round(as.data.frame(R$pt_burden[, outcomes, drop=FALSE]), 1),
+scenario_totals <- data.frame(scenario = scen_names,
+                              do.call(rbind, lapply(scen_names, function(nm)
+                                round(apply(bmat[[nm]][, outcomes, drop=FALSE], 2, median, na.rm=TRUE), 1))),
                               row.names = NULL, check.names = FALSE)
 notes <- data.frame(
   parameter = c("Data window", "Simulation horizon", "Observed reported cases",
@@ -107,7 +130,7 @@ notes <- data.frame(
                 "Coverage of 18-59", "Weekly delivery", "Deployment delay",
                 "Uncertainty", "Feasible LHS draws"),
   value = c(sprintf("2025-W24 -> 2026-W22 (%d wk), fit", T_data),
-            sprintf("%d weeks (data + %d extension)", T_sim, R$EXTEND),
+            sprintf("%d weeks (data + %d extension)", T_sim, EXTEND),
             format(sum(observed_cases), big.mark=","),
             "Beta(20,60), median 0.25 (point est.)",
             "Beta(35.84,32.56), median 0.524",
@@ -120,8 +143,8 @@ notes <- data.frame(
             as.character(nrow(base_true))),
   stringsAsFactors = FALSE)
 
-sheets <- list(notes = notes, baseline_true_reported = R$base_tbl,
-               vaccinated_true_reported = vtr, averted_MC_95UI = R$mc_tbl,
+sheets <- list(notes = notes, baseline_true_reported = base_tbl,
+               vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
                scenario_totals = scenario_totals, weekly_reported = weekly_reported)
 write_xlsx(sheets, "CHIKV_ca_vacc_outputs.xlsx")
 cat("Wrote CHIKV_ca_vacc_outputs.xlsx (sheets:", paste(names(sheets), collapse=", "), ")\n")
@@ -144,8 +167,8 @@ notes_52 <- rbind(notes_52,
              value = "Burden-total tabs are whole-outbreak totals (>99% within the 52-wk window); weekly tab is sliced to the window.",
              stringsAsFactors = FALSE))
 
-sheets_52 <- list(notes = notes_52, baseline_true_reported = R$base_tbl,
-                  vaccinated_true_reported = vtr, averted_MC_95UI = R$mc_tbl,
+sheets_52 <- list(notes = notes_52, baseline_true_reported = base_tbl,
+                  vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
                   scenario_totals = scenario_totals, weekly_reported = baseline_52wk)
 write_xlsx(sheets_52, "CHIKV_ca_vacc_outputs_52.xlsx")
 cat("Wrote CHIKV_ca_vacc_outputs_52.xlsx (sheets:", paste(names(sheets_52), collapse=", "), ")\n")
@@ -183,13 +206,13 @@ make_epicurve <- function(tn) {
     # geom_vline(xintercept=T_data+0.5, linetype="dotted", colour="grey60") +
     geom_ribbon(data=subset(pdf, measure=="True symptomatic"), aes(ymin=lo, ymax=hi), alpha=.18, colour=NA) +
     geom_line(aes(linetype=measure), linewidth=.9) +
-    annotate("text", x=Inf, y=Inf, label=lab, hjust=1.02, vjust=1.2, size=2.7, lineheight=.95) +
+    annotate("text", x=Inf, y=Inf, label=lab, hjust=1.02, vjust=1.2, size=3.5, lineheight=.95) +
     scale_colour_manual(values=scen_cols, aesthetics=c("colour","fill")) +
     scale_linetype_manual(values=c("True symptomatic"="solid","Reported"="dotted"), name=NULL) +
     scale_x_continuous(breaks=x_breaks, labels=x_labs) +
     scale_y_continuous(labels=scales::comma) +
     labs(x="Week", y="Predicted symptomatic cases", colour=NULL, fill=NULL,
-         title=paste0("Caldas Novas CHIKV: symptomatic cases at 30% coverage - ", tn),
+         title=paste0("CHIKV symptomatic cases at 30% coverage"),
          caption=sprintf("Green = vaccination rollout window; band = 95%% UI", T_data)) +
     theme_bw(11) + theme(legend.position="bottom", plot.title=element_text(face="bold"),
                          panel.grid.minor=element_blank())
@@ -203,7 +226,7 @@ for (tn in names(timings)) {
 # (2025-W40 -> 2026-W38); pre-outbreak rollout starts at the window's first week.
 p52 <- make_epicurve("pre-outbreak") +
   coord_cartesian(xlim = c(w52_lo - 0.5, w52_hi + 0.5)) +
-  labs(title = "Caldas Novas CHIKV symptomatic cases (2025-W40 - 2026-W38)")
+  labs(title = "CHIKV symptomatic cases (2025-W40 - 2026-W38)")
 print(p52); ggsave("CHIKV_ca_vacc_epicurve_52wk.png", p52, width=8, height=5, dpi=120)
 
 # ------------------------------------------------------------
