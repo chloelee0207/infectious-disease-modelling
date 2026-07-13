@@ -243,10 +243,10 @@ save_band <- function(file, dfp, ytitle, ttl, add_dashed=NULL){
   ggsave(file, g, width=7.5, height=4.4, dpi=110)
 }
 save_band("CHIKV_ca_prop_beta.png", data.frame(week=weeks, lo=bb[1,], med=bb[2,], hi=bb[3,]),
-          expression(beta[t]), "Caldas Novas beta(t): propagated 95% band (all 4 inputs)",
+          expression(beta[t]), "Beta(t) with 95% band",
           data.frame(week=weeks, y=base$beta))
 save_band("CHIKV_ca_prop_R0.png", data.frame(week=weeks, lo=r0b[1,], med=r0b[2,], hi=r0b[3,]),
-          "R0(t) = beta/gamma", "Caldas Novas R0(t): propagated 95% band vs baseline (dashed)",
+          "R0(t) = beta/gamma", "R0(t) with 95% band vs baseline (dashed)",
           data.frame(week=weeks, y=base$beta/0.54))
 ggsave("CHIKV_ca_prop_infections.png",
   ggplot(data.frame(week=weeks, lo=ib[1,], med=ib[2,], hi=ib[3,], rep=pb[2,], obs=observed_cases)) +
@@ -254,7 +254,7 @@ ggsave("CHIKV_ca_prop_infections.png",
     geom_line(aes(week, med), colour="#3182bd", linewidth=1) +
     geom_line(aes(week, rep), colour="#d6604d", linewidth=.9) + geom_point(aes(week, obs), size=1) +
     scale_x_continuous(breaks=x_ticks$week_index, labels=x_ticks$week) +
-    labs(x="Week", y="Weekly cases", title="Caldas Novas: true infections (band) vs reported (coral/dots)") +
+    labs(x="Week", y="Weekly cases", title="True infections (band) vs reported (dots)") +
     theme_bw(12), width=7.5, height=4.4, dpi=110)
 
 write.csv(data.frame(draw=1:n, FOI=foi, gamma=gam, sigma=sig, rho=rho, prop_symp=psy,
