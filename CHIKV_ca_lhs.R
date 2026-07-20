@@ -7,11 +7,21 @@
 #     age-specific prior immunity). Note the fit only sees rho*prop_symp, so prop_symp
 #     mainly widens the TRUE-infection iceberg (symptomatic/hosp/deaths anchor at obs/rho).
 # For each Latin-Hypercube draw we RE-FIT the beta-spline + theta, so the final
-# R0 / attack-rate / infection / beta bands carry all four sources of uncertainty
-# instead of the fixed point values used in the point-estimate fit.
+# R0 / attack-rate / infection / beta bands carry all five sources of uncertainty
+# instead of fixed point values.
 #
-# This script copies the model machinery so it does not depend on the state of
-# CHIKV_ca_pre_vacc_optim.R. Modelling choices are set explicitly below.
+# WINDOWS -- the fit and the vaccine evaluation deliberately differ:
+#   FIT window (here): 2025-W24 -> 2026-W22 (52 weeks). This is the full extent of the
+#     observed surveillance data, and it is what pins the beta shape.
+#   VACCINE model (CHIKV_ca_engine.R): simulates a LONGER horizon (T_weeks + 26, with
+#     beta held flat past the data) and scores burden over a SHIFTED 52-week evaluation
+#     window, 2025-W40 -> 2026-W38. Vaccination both lowers AND delays the epidemic, so
+#     the delayed peak would fall partly outside this fit window; the shifted window is
+#     what captures the real (post-vaccination) outbreak.
+#
+# Self-contained: this script holds its own model machinery and exports everything the
+# vaccine chain needs (CHIKV_ca_lhs_ensemble.rds). Nothing here uses the retired
+# deterministic point-estimate fit. Modelling choices are set explicitly below.
 # ============================================================
 setwd("/Users/chloelee/Documents/R/summer_project")
 suppressMessages({library(readxl); library(dplyr); library(tidyr); library(ggplot2); library(splines)})
@@ -254,9 +264,11 @@ cat("\nSaved CHIKV_ca_prop_beta.png, CHIKV_ca_prop_R0.png, CHIKV_ca_prop_infecti
 
 # ------------------------------------------------------------
 # 9. Export the FEASIBLE-draw ensemble for the standalone vaccine model.
-#    CHIKV_ca_vacc.R loads this RDS instead of depending on CHIKV_ca_pre_vacc_optim.R
-#    or re-running the 1000 refits. It carries all four calibration uncertainties
-#    (FOI -> immunity, gamma, sigma, rho ~ Beta(20,60)); the vaccine MC iterates over
+#    CHIKV_ca_engine.R loads this RDS instead of re-running the 1000 refits. The
+#    ensemble is SELF-CONTAINED (per-draw beta + N, age structure, observed cases,
+#    seed inputs), so the vaccine chain has NO dependency on the retired deterministic
+#    fit. It carries all five calibration uncertainties (FOI -> immunity, gamma, sigma,
+#    rho ~ Beta(20,60), prop_symp); the vaccine MC iterates over
 #    these draws and layers vaccine-parameter draws on top. The point estimate uses
 #    the median inputs (rho 0.25). Immunity Rimm and the seed I0 are recomputed per
 #    draw in the vaccine script from foi/gamma/rho (Rimm = 1 - exp(-foi * age_mid)).
