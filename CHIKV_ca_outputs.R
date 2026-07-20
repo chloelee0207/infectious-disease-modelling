@@ -145,7 +145,8 @@ notes <- data.frame(
 
 sheets <- list(notes = notes, baseline_true_reported = base_tbl,
                vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
-               scenario_totals = scenario_totals, weekly_reported = weekly_reported)
+               scenario_totals = scenario_totals, weekly_reported = weekly_reported,
+               burden_audit = G$burden_audit, burden_audit_by_age = G$burden_audit_by_age)
 write_xlsx(sheets, "CHIKV_ca_vacc_outputs.xlsx")
 cat("Wrote CHIKV_ca_vacc_outputs.xlsx (sheets:", paste(names(sheets), collapse=", "), ")\n")
 
@@ -169,7 +170,8 @@ notes_52 <- rbind(notes_52,
 
 sheets_52 <- list(notes = notes_52, baseline_true_reported = base_tbl,
                   vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
-                  scenario_totals = scenario_totals, weekly_reported = baseline_52wk)
+                  scenario_totals = scenario_totals, weekly_reported = baseline_52wk,
+                  burden_audit = G$burden_audit, burden_audit_by_age = G$burden_audit_by_age)
 write_xlsx(sheets_52, "CHIKV_ca_vacc_outputs_52.xlsx")
 cat("Wrote CHIKV_ca_vacc_outputs_52.xlsx (sheets:", paste(names(sheets_52), collapse=", "), ")\n")
 

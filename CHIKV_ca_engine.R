@@ -100,6 +100,49 @@ out_base_pt <- seirv_vaccinated(T_sim, A, N, Rimm_base, I0_base, E0, extend_beta
                  0, 0, immun_delay, prop_symp = E$base_prop_symp)
 age_weight <- compute_age_weight(rowSums(out_base_pt$new_infections), obs_band_prop, age_to_band)
 young_idx <- which(age_to_band <= 4); old_idx <- which(age_to_band >= 5)
+
+# ------------------------------------------------------------
+# 3b. Burden calculation AUDIT (point estimate, no-vaccine baseline, within EVAL_WIN).
+#     A hand-checkable trace of how each number leads to the next. POINT estimate
+#     (mean params) so every step ties out EXACTLY; the MC medians in the other tabs
+#     are close but NOT identical (median of a product != product of medians).
+#     Chain: infections -> symptomatic (x prop_symp) -> hospitalisations (x hosp_rate,
+#     SINGLE rate) ; deaths are age-specific: sum over age of symptomatic_age x CFR_age.
+# ------------------------------------------------------------
+aud_inf_age  <- rowSums(out_base_pt$new_infections[,  EVAL_WIN, drop = FALSE])   # true infections by age
+aud_symp_age <- rowSums(out_base_pt$new_symptomatic[, EVAL_WIN, drop = FALSE])   # = prop_symp * inf_age
+aud_symp_w   <- aud_symp_age * age_weight
+aud_symp_dw  <- if (sum(aud_symp_w) > 0) aud_symp_w * (sum(aud_symp_age)/sum(aud_symp_w)) else aud_symp_age
+aud_inf  <- sum(aud_inf_age); aud_symp <- sum(aud_symp_age)
+aud_hosp <- aud_symp * hosp_rate                    # SINGLE rate, all ages
+aud_dth_age <- aud_symp_dw * cfr_vec; aud_dth <- sum(aud_dth_age)
+aud_qb <- function(a, b) c(a/(a+b), qbeta(.025, a, b), qbeta(.975, a, b))
+aud_ps <- aud_qb(ps_a, ps_b); aud_hr <- aud_qb(hosp_a, hosp_b)
+burden_audit <- data.frame(
+  step     = 1:5,
+  quantity = c("True infections","True symptomatic","Reported cases","Hospitalisations","Deaths"),
+  value    = c(round(aud_inf), round(aud_symp), round(E$base_rho*aud_symp), round(aud_hosp,1), round(aud_dth,2)),
+  formula  = c("SEIR: sum(new_infections) in the 52-wk window",
+               "true infections x prop_symp",
+               "true symptomatic x rho   (= rho x prop_symp x infections)",
+               "true symptomatic x hosp_rate   [SINGLE rate, ALL ages]",
+               "sum over age of (symptomatic_age x CFR_age)   [age-specific]"),
+  parameter = c("-",
+                sprintf("prop_symp = %.3f (95%% UI %.3f-%.3f)", aud_ps[1], aud_ps[2], aud_ps[3]),
+                sprintf("rho = %.3f (base; per-draw Beta(20,60) in the MC)", E$base_rho),
+                sprintf("hosp_rate = %.4f (95%% UI %.4f-%.4f)", aud_hr[1], aud_hr[2], aud_hr[3]),
+                "CFR by age -> see burden_audit_by_age tab"),
+  stringsAsFactors = FALSE)
+aud_band <- c("[0,10)","[10,20)","[20,30)","[30,40)","[40,50)","[50,60)","[60,70)","[70,80)","[80,90)")
+burden_audit_by_age <- rbind(
+  data.frame(age_group = as.character(age_df$age_group), cfr_band = aud_band[age_to_band],
+             symptomatic_reweighted = round(aud_symp_dw, 1), CFR_death_per_symp = signif(cfr_vec, 3),
+             deaths = round(aud_dth_age, 3), stringsAsFactors = FALSE),
+  data.frame(age_group = "TOTAL", cfr_band = "-", symptomatic_reweighted = round(aud_symp, 1),
+             CFR_death_per_symp = NA_real_, deaths = round(aud_dth, 3)))
+cat(sprintf("Burden audit (point est.): infections %.0f -> symptomatic %.0f -> hosp %.1f -> deaths %.2f\n",
+            aud_inf, aud_symp, aud_hosp, aud_dth))
+
 dp <- load_daly_params()
 
 # ------------------------------------------------------------
@@ -257,6 +300,7 @@ saveRDS(list(
   OUTCOMES = OUTCOMES, NNV_OUT = NNV_OUT, EVAL_WIN = EVAL_WIN,
   T_sim = T_sim, T_data = T_data, caldas_obs = caldas_obs, observed_cases = observed_cases,
   N_DRAWS = N_DRAWS, PHASE_MODE = PHASE_MODE, target_pop_elig = target_pop_elig,
-  cov_d = cov_d, ve_d = ve_d),
+  cov_d = cov_d, ve_d = ve_d,
+  burden_audit = burden_audit, burden_audit_by_age = burden_audit_by_age),
   "CHIKV_ca_engine_results.rds")
 cat("\nSaved CHIKV_ca_engine_results.rds (per-draw + aggregated; severity-phase counts included).\n")
