@@ -170,13 +170,13 @@ year_break <- mean(c(
 caldas_weekly <- ggplot(ca_total, aes(x = week_index, y = tot_cases)) +
   geom_vline(xintercept = year_break, linetype = "dashed", colour = "grey50") +
   annotate("text", x = year_break, y = 0,
-           label = "2026", angle = 90, vjust = -0.2, hjust = -11,
+           label = "2026", angle = 90, vjust = -0.4, hjust = -9.3,
            fontface = "bold", size = 3.6, colour = "grey40") +
   geom_line(linewidth = 0.6) +
   scale_x_continuous(breaks = x_ticks$week_index, labels = x_ticks$label) +
   scale_y_continuous(labels = scales::comma) +
   labs(x = "Week", y = "Reported CHIKV cases",
-       title = "Weekly CHIKV cases in Caldas Novas (2025-2026)") +
+       title = "Observed Weekly CHIKV cases in Caldas Novas") +
   theme_bw(base_size = 12) +
   theme(plot.title = element_text(face = "bold", hjust = 0.5),
         panel.grid.major = element_line(linetype = "dotted", colour = "grey80"),
@@ -189,18 +189,21 @@ ggsave("CHIKV_ca_weekly.png", caldas_weekly, width = 9, height = 5, dpi = 120)
 caldas_age <- ggplot(ca_age, aes(x = week_index, y = cases, fill = age_group)) +
   geom_col(width = 1) +
   geom_vline(xintercept = year_break, linetype = "dashed", colour = "grey30") +
+  annotate("text", x = year_break, y = 0,
+           label = "2026", angle = 90, vjust = -0.4, hjust = -9.3,
+           fontface = "bold", size = 3.6, colour = "grey40") +
   scale_x_continuous(breaks = x_ticks$week_index, labels = x_ticks$label) +
   scale_y_continuous(labels = scales::comma) +
   scale_fill_viridis_d(option = "turbo", name = "Age group") +
   labs(x = "Week", y = "Reported CHIKV cases",
-       title = "Weekly CHIKV cases in Caldas Novas by age group (2025-2026)") +
-  theme_bw(base_size = 12) +
+       title = "Observed Weekly CHIKV cases in Caldas Novas by age group") +
+  theme_bw(base_size = 10) +
   theme(plot.title = element_text(face = "bold", hjust = 0.5),
         panel.grid.major = element_line(linetype = "dotted", colour = "grey80"),
         panel.grid.minor = element_blank())
 
 print(caldas_age)
-# ggsave("CHIKV_ca_weekly_age.png", caldas_age, width = 9, height = 4.5, dpi = 120)
+ggsave("CHIKV_ca_weekly_age.png", caldas_age, width = 9, height = 4.5, dpi = 120)
 
 # ============================================================================
 # SENSE CHECK: expected CHIKV deaths in Caldas Novas via the Goias state CFR
