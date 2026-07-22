@@ -33,6 +33,11 @@ source("ca_common.R")   # fmtq, qs, burden, load_burden_params, load_caldas_age_
 # ---- knobs --------------------------------------------------
 N_DRAWS    <- 1000
 PHASE_MODE <- "hosp_severity"   # YLD severity axis (see daly_counts); matches CHIKV_ca_daly.R
+# YLD accrues by RECOVERY FUNNEL: each patient is counted exactly once, in the phase in
+# which their illness resolved, using that group's total time-to-recovery as the duration.
+# Phases are NOT nested -- dur_chronic (0.53 yr) is O'Driscoll's median time to arthralgia
+# resolution measured FROM INFECTION (6.39 mo, 95% CI 5.48-7.66), so it already spans the
+# acute and sub-acute period; adding those on top would double count.
 SEV_SPLIT  <- c(mild_mod = 0.47, severe = 0.53)   # used only by PHASE_MODE == "acute_split"
 set.seed(2030)
 
@@ -151,7 +156,7 @@ dp <- load_daly_params()
 #    cost layer can multiply unit costs onto them later without re-running.
 # ------------------------------------------------------------
 outcome_one <- function(out, covv, hosp_j, cfr_j, le_band,
-                        dwmm, dwsv, dwch, dumm, dusv, duch, p14y, p14o, p90y, p90o) {
+                        dwmm, dwsv, dwch, dumm, dusv, dusb, duch, acy, aco, sby, sbo, chy, cho) {
   infections <- sum(out$new_infections[, EVAL_WIN, drop = FALSE])
   symp_age   <- rowSums(out$new_symptomatic[, EVAL_WIN, drop = FALSE])
   symp_w  <- symp_age * age_weight
@@ -160,29 +165,45 @@ outcome_one <- function(out, covv, hosp_j, cfr_j, le_band,
 
   n_hosp    <- st * hosp_j                     # hospitalised (= severe acute in hosp_severity)
   n_nonhosp <- st * (1 - hosp_j)               # non-hospitalised (mild/mod acute)
-  n_chronic <- sy*(1-p14y)*(1-p90y) + so*(1-p14o)*(1-p90o)   # not recovered by 90d
+  # Recovery funnel: resolved <=14d (acute) | 14d-3m (sub-acute) | >3m (chronic).
+  # The three shares are MARGINAL and are renormalised to sum to 1 within each age class,
+  # so every symptomatic case is counted in exactly one phase.
+  sy_t <- acy + sby + chy; so_t <- aco + sbo + cho
+  n_acute    <- sy*acy/sy_t + so*aco/so_t
+  n_subacute <- sy*sby/sy_t + so*sbo/so_t
+  n_chronic  <- sy*chy/sy_t + so*cho/so_t
+  f_acute    <- n_acute / st
 
+  yld_sub <- 0
   if (PHASE_MODE == "hosp_severity") {
-    yld_ac  <- n_nonhosp*dwmm*dumm + n_hosp*dwsv*dusv
-    yld_chr <- n_chronic * dwch * duch
+    yld_ac  <- (n_nonhosp*dwmm*dumm + n_hosp*dwsv*dusv) * f_acute  # resolved <=14d
+    yld_sub <- n_subacute * dwch * dusb   # resolved 14d-3m (CHRONIC disability weight)
+    yld_chr <- n_chronic  * dwch * duch   # resolved >3m
   } else if (PHASE_MODE == "three_phase") {
+    # Middle term already represents the post-acute (>14d) phase, so no separate
+    # sub-acute YLD is added here -- it would double count.
     yld_ac  <- st*dwmm*dumm + (sy*(1-p14y) + so*(1-p14o))*dwsv*dusv
     yld_chr <- n_chronic * dwch * duch
   } else {                                     # acute_split
+    # Chronic term is keyed on "not recovered by 14d", i.e. it already absorbs the
+    # sub-acute group; no separate sub-acute YLD (would double count).
     yld_ac  <- st * (SEV_SPLIT["mild_mod"]*dwmm*dumm + SEV_SPLIT["severe"]*dwsv*dusv)
     yld_chr <- (sy*(1-p14y) + so*(1-p14o)) * dwch * duch
   }
   deaths <- sum(symp_dw * cfr_j)
   yll    <- sum(symp_dw * cfr_j * le_band[age_to_band])
+  yld_tot <- unname(yld_ac + yld_sub + yld_chr)
   c(infections = infections, symptomatic = st,
     hospitalisations = n_hosp, deaths = deaths,
-    n_nonhosp = n_nonhosp, n_chronic = n_chronic,
-    yld_acute = unname(yld_ac), yld_chronic = unname(yld_chr),
-    yld = unname(yld_ac + yld_chr), yll = yll, daly = unname(yld_ac + yld_chr) + yll,
+    n_nonhosp = n_nonhosp, n_subacute = n_subacute, n_chronic = n_chronic,
+    yld_acute = unname(yld_ac), yld_subacute = unname(yld_sub),
+    yld_chronic = unname(yld_chr),
+    yld = yld_tot, yll = yll, daly = yld_tot + yll,
     doses = target_pop_elig * covv)
 }
 OUTCOMES <- c("infections","symptomatic","hospitalisations","deaths",
-              "n_nonhosp","n_chronic","yld_acute","yld_chronic","yld","yll","daly","doses")
+              "n_nonhosp","n_subacute","n_chronic",
+              "yld_acute","yld_subacute","yld_chronic","yld","yll","daly","doses")
 NNV_OUT  <- c("symptomatic","hospitalisations","deaths","daly")   # NNV reported for these
 
 # ------------------------------------------------------------
@@ -195,7 +216,7 @@ cov_ab   <- beta_from_ci(0.30,  0.20,  0.40)   # SAMPLED coverage of eligible 18
 deliv_ab <- beta_from_ci(0.10,  0.09,  0.11)
 
 lhs_col <- function(n) (sample.int(n) - runif(n)) / n
-K <- 42
+K <- 49
 U <- sapply(1:K, function(j) lhs_col(N_DRAWS)); col <- 0
 nextU <- function(w = 1) { idx <- (col + 1):(col + w); col <<- col + w; U[, idx, drop = FALSE] }
 cov_d   <- qbeta(nextU(), cov_ab["a"],   cov_ab["b"])
@@ -210,10 +231,16 @@ dwSV_d  <- qbeta(nextU(), dp$dw_sev$a, dp$dw_sev$b)
 dwCH_d  <- qbeta(nextU(), dp$dw_chr$a, dp$dw_chr$b)
 duMM_d  <- qlnorm(nextU(), dp$du_mm$m,  dp$du_mm$s)
 duSV_d  <- qlnorm(nextU(), dp$du_sev$m, dp$du_sev$s)
+duSB_d  <- qlnorm(nextU(), dp$du_sub$m, dp$du_sub$s)
 duCH_d  <- qlnorm(nextU(), dp$du_chr$m, dp$du_chr$s)
 le_d    <- qlnorm(nextU(9), matrix(dp$le$m, N_DRAWS, 9, byrow=TRUE), matrix(dp$le$s, N_DRAWS, 9, byrow=TRUE))
-p14y_d  <- qbeta(nextU(), dp$p14_y$a, dp$p14_y$b); p14o_d <- qbeta(nextU(), dp$p14_o$a, dp$p14_o$b)
-p90y_d  <- qbeta(nextU(), dp$p90_y$a, dp$p90_y$b); p90o_d <- qbeta(nextU(), dp$p90_o$a, dp$p90_o$b)
+# Marginal recovery shares: acute (<=14d), sub-acute (14d-3m), chronic (>3m = 6m+12m+30m)
+acy_d <- qbeta(nextU(), dp$p14_y$a, dp$p14_y$b); aco_d <- qbeta(nextU(), dp$p14_o$a, dp$p14_o$b)
+sby_d <- qbeta(nextU(), dp$p90_y$a, dp$p90_y$b); sbo_d <- qbeta(nextU(), dp$p90_o$a, dp$p90_o$b)
+chy_d <- qbeta(nextU(), dp$p6_y$a,  dp$p6_y$b)  + qbeta(nextU(), dp$p12_y$a, dp$p12_y$b) +
+         qbeta(nextU(), dp$p30_y$a, dp$p30_y$b)
+cho_d <- qbeta(nextU(), dp$p6_o$a,  dp$p6_o$b)  + qbeta(nextU(), dp$p12_o$a, dp$p12_o$b) +
+         qbeta(nextU(), dp$p30_o$a, dp$p30_o$b)
 stopifnot(col == K)
 t_idx <- sample.int(n_ens, N_DRAWS, replace = TRUE)   # transmission draw per LHS row
 rho_i <- E$rho[t_idx]                                 # per-draw reporting rate (for reported cases)
@@ -239,8 +266,9 @@ for (i in 1:N_DRAWS) {
     out <- seirv_vaccinated(T_sim, A, N, Rimm_i, I0_i, E0, beta_ext, E$sigma[ti], E$gamma[ti],
              E$rho[ti], target_age, covv, deliv_d[i], st, vi, vb, immun_delay, prop_symp = E$prop_symp[ti])
     per_draw[[s$name]][i, ] <- outcome_one(out, covv, hosp_d[i], cfr_j, le_d[i, ],
-                                 dwMM_d[i], dwSV_d[i], dwCH_d[i], duMM_d[i], duSV_d[i], duCH_d[i],
-                                 p14y_d[i], p14o_d[i], p90y_d[i], p90o_d[i])
+                                 dwMM_d[i], dwSV_d[i], dwCH_d[i], duMM_d[i], duSV_d[i],
+                                 duSB_d[i], duCH_d[i],
+                                 acy_d[i], aco_d[i], sby_d[i], sbo_d[i], chy_d[i], cho_d[i])
     wk_symp[[s$name]][i, ] <- colSums(out$new_symptomatic)
     wk_inf [[s$name]][i, ] <- colSums(out$new_infections)
   }

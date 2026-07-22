@@ -300,7 +300,10 @@ load_daly_params <- function(dp_path = "disease_progression.xlsx",
   dw_chr <- beta_ab("Disability weight for chronic chikungunya")
   du_mm  <- lnorm_ms("Duration of illness for mild and moderate chikungunya (years)")
   du_sev <- lnorm_ms("Duration of illness for severe chikungunya (years)")
+  du_sub <- lnorm_ms("Duration of illness for sub-acute chikungunya (years)")
   du_chr <- lnorm_ms("Duration of illness for chronic chikungunya (years)")
+  # No separate disability weight is published for the sub-acute phase; by assumption
+  # it is given the CHRONIC disability weight (dw_chr), sampled from the same draw.
   le <- row("Remaining life-years")
   lo <- as.numeric(sub(".*\\[\\s*([0-9]+).*", "\\1", le$group)); le <- le[order(lo), ]
   le_ms <- list(m = le$v1, s = le$v2, med = le$median)
@@ -309,7 +312,18 @@ load_daly_params <- function(dp_path = "disease_progression.xlsx",
   p14_o <- beta_ab("Probability of recovery within 14 days after onset of symptoms", "> 40")
   p90_y <- beta_ab("Probability of recovery within 90 days after acute period", "< 40")
   p90_o <- beta_ab("Probability of recovery within 90 days after acute period", "> 40")
+  # The five recovery rows are MARGINAL proportions of one cohort, not conditional
+  # probabilities: they sum to 1.02 (<40) and 0.98 (>=40). So the chronic proportion is
+  # the SUM of the 6m/12m/30m rows (0.309 / 0.356), matching Hyolim's chr_prop -- NOT
+  # a survival cascade (1-p14)(1-p90). Source: O'Driscoll et al. 2021 IJID.
+  p6_y  <- beta_ab("Probability of recovery within 6 months after sub-acute period", "< 40")
+  p6_o  <- beta_ab("Probability of recovery within 6 months after sub-acute period", "> 40")
+  p12_y <- beta_ab("Probability of recovery within 12 months after 6 months of chronicity", "< 40")
+  p12_o <- beta_ab("Probability of recovery within 12 months after 6 months of chronicity", "> 40")
+  p30_y <- beta_ab("Probability of recovery within 30 months after 12 months of chronicity", "< 40")
+  p30_o <- beta_ab("Probability of recovery within 30 months after 12 months of chronicity", "> 40")
   list(dw_mm=dw_mm, dw_sev=dw_sev, dw_chr=dw_chr,
-       du_mm=du_mm, du_sev=du_sev, du_chr=du_chr, le=le_ms,
-       p14_y=p14_y, p14_o=p14_o, p90_y=p90_y, p90_o=p90_o)
+       du_mm=du_mm, du_sev=du_sev, du_sub=du_sub, du_chr=du_chr, le=le_ms,
+       p14_y=p14_y, p14_o=p14_o, p90_y=p90_y, p90_o=p90_o,
+       p6_y=p6_y, p6_o=p6_o, p12_y=p12_y, p12_o=p12_o, p30_y=p30_y, p30_o=p30_o)
 }

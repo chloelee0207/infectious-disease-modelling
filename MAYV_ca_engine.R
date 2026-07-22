@@ -3,7 +3,7 @@
 # ------------------------------------------------------------
 # MAYV's own engine (the analogue of CHIKV_ca_engine.R; the CHIKV engine/LHS are
 # left untouched). ONE uncertainty propagation -> burden + DALY + NNV, consistent
-# draw-for-draw. It CONSUMES MAYV_ca_lhs_ensemble.rds (the rainfall-envelope outbreak
+# draw-for-draw. It CONSUMES MAYV_ca_lhs_ensemble.rds (the CHIKV-beta-envelope outbreak
 # at sampled wet-season-PEAK R0 ~ Lognormal[high], flat Lima-2021 immunity), and
 # layers vaccine + severity + DALY draws on top.
 #
@@ -31,6 +31,7 @@ source("ca_common.R")   # fmtq, load_burden_params, load_daly_params
 PHASE_MODE             <- "hosp_severity"   # YLD severity axis (matches CHIKV engine)
 OUTBREAK_ATTACK_THRESH <- 1.0               # % of susceptibles infected -> "took off"
 R0_FIX                 <- 3.0               # fixed peak R0 for the representative-outbreak plot (6c); NA to skip
+MAYV_ZERO_DEATHS       <- TRUE              # no confirmed MAYV-attributable death -> CFR = 0 (deaths & YLL = 0)
 set.seed(2031)
 
 # ------------------------------------------------------------
@@ -101,7 +102,7 @@ n_ens <- length(E$R0); N_DRAWS <- n_ens
 cat(sprintf("Loaded MAYV ensemble: %d draws | R0 scenario '%s' (peak=%s) | seed wk %d\n",
             n_ens, E$R0_scenario, E$r0_is_peak, seed_week))
 
-EVAL_WIN <- 1:T_weeks   # outbreak resolves within the 52-week rainfall window
+EVAL_WIN <- 1:T_weeks   # outbreak resolves within the 52-week CHIKV-beta window (2025-W24 -> 2026-W22)
 
 # ------------------------------------------------------------
 # 1. Severity + DALY params (borrowed CHIKV) + eligibility + uniform age weight
@@ -114,7 +115,7 @@ young_idx  <- which(age_to_band <= 4); old_idx <- which(age_to_band >= 5)
 target_age <- rep(0, A); target_age[c(4,5,6,7,8)] <- 1     # eligible adults 18-59 (as CHIKV/MAYV vacc)
 target_pop_elig <- sum(N[target_age == 1])
 immun_delay <- 2
-start_pre   <- 1        # pre-outbreak campaign from the window open (2025-W40), before the seed (wk 5)
+start_pre   <- 1        # pre-outbreak campaign from the window open (2025-W24), before the seed (wk 19)
 stopifnot(start_pre < seed_week)
 
 # ------------------------------------------------------------
@@ -122,30 +123,44 @@ stopifnot(start_pre < seed_week)
 #    Severity phases saved as COUNTS so a cost layer can multiply later (no re-run).
 # ------------------------------------------------------------
 OUTCOMES <- c("infections","reported","symptomatic","hospitalisations","deaths",
-              "n_nonhosp","n_chronic","yld_acute","yld_chronic","yld","yll","daly","doses")
+              "n_nonhosp","n_subacute","n_chronic",
+              "yld_acute","yld_subacute","yld_chronic","yld","yll","daly","doses")
 NNV_OUT  <- c("reported","symptomatic","hospitalisations","deaths","daly")
 
 outcome_one <- function(symp_age, infections, doses, rho, hosp_j, cfr_j, le_band,
-                        dwmm, dwsv, dwch, dumm, dusv, duch, p14y, p14o, p90y, p90o) {
-  symp_age <- symp_age * age_weight                        # uniform (=1) here
-  st <- sum(symp_age); sy <- sum(symp_age[young_idx]); so <- sum(symp_age[old_idx])
+                        dwmm, dwsv, dwch, dumm, dusv, dusb, duch, acy, aco, sby, sbo, chy, cho) {
+  # Age-reweight but KEEP THE TOTAL: only the age DISTRIBUTION is reweighted (matches
+  # the CHIKV engine / ca_common::burden). age_weight is uniform (=1) for MAYV.
+  symp_w  <- symp_age * age_weight
+  symp_dw <- if (sum(symp_w) > 0) symp_w * (sum(symp_age)/sum(symp_w)) else symp_age
+  st <- sum(symp_dw); sy <- sum(symp_dw[young_idx]); so <- sum(symp_dw[old_idx])
   reported <- rho * st                                     # rho * symptomatic (surveillance-visible)
-  n_hosp    <- st * hosp_j
-  n_nonhosp <- st * (1 - hosp_j)
-  n_chronic <- sy*(1-p14y)*(1-p90y) + so*(1-p14o)*(1-p90o)
-  if (PHASE_MODE == "hosp_severity") {
-    yld_ac <- n_nonhosp*dwmm*dumm + n_hosp*dwsv*dusv
-  } else {                                                  # three_phase
-    yld_ac <- st*dwmm*dumm + (sy*(1-p14y) + so*(1-p14o))*dwsv*dusv
-  }
-  yld_chr <- n_chronic * dwch * duch
-  deaths  <- sum(symp_age * cfr_j)
-  yll     <- sum(symp_age * cfr_j * le_band[age_to_band])
+  n_hosp    <- st * hosp_j                                 # hospitalised (= severe acute)
+  n_nonhosp <- st * (1 - hosp_j)                           # non-hospitalised (mild/mod acute)
+  # Recovery funnel: resolved <=14d (acute) | 14d-3m (sub-acute) | >3m (chronic).
+  # The three shares are MARGINAL proportions of one cohort (O'Driscoll et al. 2021 IJID;
+  # they sum to ~1), NOT a survival cascade (1-p14)(1-p90) -- chronic is the SUM of the
+  # 6m/12m/30m rows. They are renormalised to sum to 1 within each age class so every
+  # symptomatic case is counted in exactly one phase.
+  sy_t <- acy + sby + chy; so_t <- aco + sbo + cho
+  n_acute    <- sy*acy/sy_t + so*aco/so_t
+  n_subacute <- sy*sby/sy_t + so*sbo/so_t
+  n_chronic  <- sy*chy/sy_t + so*cho/so_t
+  f_acute    <- if (st > 0) n_acute / st else 0
+  if (PHASE_MODE != "hosp_severity")
+    stop("MAYV engine implements PHASE_MODE 'hosp_severity' only (the CHIKV default).")
+  yld_ac  <- (n_nonhosp*dwmm*dumm + n_hosp*dwsv*dusv) * f_acute  # resolved <=14d only
+  yld_sub <- n_subacute * dwch * dusb   # resolved 14d-3m (CHRONIC disability weight)
+  yld_chr <- n_chronic  * dwch * duch   # resolved >3m
+  yld_tot <- unname(yld_ac + yld_sub + yld_chr)
+  deaths  <- sum(symp_dw * cfr_j)
+  yll     <- sum(symp_dw * cfr_j * le_band[age_to_band])
   c(infections = infections, reported = reported, symptomatic = st,
     hospitalisations = n_hosp, deaths = deaths,
-    n_nonhosp = n_nonhosp, n_chronic = n_chronic,
-    yld_acute = unname(yld_ac), yld_chronic = unname(yld_chr), yld = unname(yld_ac+yld_chr),
-    yll = yll, daly = unname(yld_ac+yld_chr) + yll, doses = doses)
+    n_nonhosp = n_nonhosp, n_subacute = n_subacute, n_chronic = n_chronic,
+    yld_acute = unname(yld_ac), yld_subacute = unname(yld_sub),
+    yld_chronic = unname(yld_chr), yld = yld_tot,
+    yll = yll, daly = yld_tot + yll, doses = doses)
 }
 
 # ------------------------------------------------------------
@@ -158,7 +173,8 @@ veb_ab <- beta_from_ci(0.50, 0.25, 0.75)     # disease-blocking efficacy (hypoth
 del_ab <- beta_from_ci(0.10, 0.09, 0.11)     # weekly delivery speed
 
 lhs_col <- function(n) (sample.int(n) - runif(n)) / n
-K <- 41; U <- sapply(1:K, function(j) lhs_col(N_DRAWS)); col <- 0
+# cols: cov, ve, deliv, hosp, cfrH(9), cfrN(9), DW(3), dur(4), LE(9), recovery shares(10)
+K <- 48; U <- sapply(1:K, function(j) lhs_col(N_DRAWS)); col <- 0
 nextU <- function(w = 1) { idx <- (col+1):(col+w); col <<- col + w; U[, idx, drop = FALSE] }
 cov_d  <- qbeta(nextU(), cov_ab["a"], cov_ab["b"])
 veb_d  <- qbeta(nextU(), veb_ab["a"], veb_ab["b"])
@@ -169,11 +185,25 @@ cfrN_d <- qbeta(nextU(9), matrix(cfr_nonh_a, N_DRAWS, 9, byrow=TRUE), matrix(cfr
 dwMM_d <- qbeta(nextU(), dp$dw_mm$a, dp$dw_mm$b); dwSV_d <- qbeta(nextU(), dp$dw_sev$a, dp$dw_sev$b)
 dwCH_d <- qbeta(nextU(), dp$dw_chr$a, dp$dw_chr$b)
 duMM_d <- qlnorm(nextU(), dp$du_mm$m, dp$du_mm$s); duSV_d <- qlnorm(nextU(), dp$du_sev$m, dp$du_sev$s)
+duSB_d <- qlnorm(nextU(), dp$du_sub$m, dp$du_sub$s)   # sub-acute duration (chronic DW applied)
 duCH_d <- qlnorm(nextU(), dp$du_chr$m, dp$du_chr$s)
 le_d   <- qlnorm(nextU(9), matrix(dp$le$m, N_DRAWS, 9, byrow=TRUE), matrix(dp$le$s, N_DRAWS, 9, byrow=TRUE))
-p14y_d <- qbeta(nextU(), dp$p14_y$a, dp$p14_y$b); p14o_d <- qbeta(nextU(), dp$p14_o$a, dp$p14_o$b)
-p90y_d <- qbeta(nextU(), dp$p90_y$a, dp$p90_y$b); p90o_d <- qbeta(nextU(), dp$p90_o$a, dp$p90_o$b)
+# Marginal recovery shares: acute (<=14d), sub-acute (14d-3m), chronic (>3m = 6m+12m+30m)
+acy_d <- qbeta(nextU(), dp$p14_y$a, dp$p14_y$b); aco_d <- qbeta(nextU(), dp$p14_o$a, dp$p14_o$b)
+sby_d <- qbeta(nextU(), dp$p90_y$a, dp$p90_y$b); sbo_d <- qbeta(nextU(), dp$p90_o$a, dp$p90_o$b)
+chy_d <- qbeta(nextU(), dp$p6_y$a,  dp$p6_y$b)  + qbeta(nextU(), dp$p12_y$a, dp$p12_y$b) +
+         qbeta(nextU(), dp$p30_y$a, dp$p30_y$b)
+cho_d <- qbeta(nextU(), dp$p6_o$a,  dp$p6_o$b)  + qbeta(nextU(), dp$p12_o$a, dp$p12_o$b) +
+         qbeta(nextU(), dp$p30_o$a, dp$p30_o$b)
 stopifnot(col == K)
+
+# ---- MAYV has NO confirmed attributable deaths -------------------------------
+# The severity parameters are borrowed from CHIKV (disease_progression.xlsx is shared
+# with the CHIKV chain and must NOT be edited), but no death has been confirmed and
+# attributed to Mayaro infection. So we zero BOTH death probabilities here, in the MAYV
+# engine only: deaths = 0 and YLL = 0 for every draw, and DALYs reduce to YLD.
+# The LHS columns are still drawn above so the design/column budget is unchanged.
+if (MAYV_ZERO_DEATHS) { cfrH_d[] <- 0; cfrN_d[] <- 0; cfr_vec[] <- 0 }
 
 # ------------------------------------------------------------
 # 4. Monte Carlo: one SEIRV run per draw (VE_inf = 0 -> infections vaccine-invariant),
@@ -204,8 +234,8 @@ for (i in 1:N_DRAWS) {
   wk_base[i, ] <- colSums(psi * ninf)                                              # weekly (all ages)
   wk_vacc[i, ] <- colSums(psi * ninf * (1 - veb_d[i]*covf))
   cfr_j <- (hosp_d[i]*cfrH_d[i,] + (1-hosp_d[i])*cfrN_d[i,])[age_to_band]
-  args_daly <- list(le_d[i,], dwMM_d[i], dwSV_d[i], dwCH_d[i], duMM_d[i], duSV_d[i], duCH_d[i],
-                    p14y_d[i], p14o_d[i], p90y_d[i], p90o_d[i])
+  args_daly <- list(le_d[i,], dwMM_d[i], dwSV_d[i], dwCH_d[i], duMM_d[i], duSV_d[i], duSB_d[i],
+                    duCH_d[i], acy_d[i], aco_d[i], sby_d[i], sbo_d[i], chy_d[i], cho_d[i])
   per_draw[["No vaccine (baseline)"]][i, ] <-
     do.call(outcome_one, c(list(symp_base, inf_tot, 0, ri, hosp_d[i], cfr_j), args_daly))
   per_draw[[vac_name]][i, ] <-
@@ -332,8 +362,8 @@ if (!is.na(R0_FIX)) {
     symp_v <- rowSums((psi*ninf*(1 - veb_d[i]*covf))[, EVAL_WIN, drop=FALSE])
     inf_t  <- sum(ninf[, EVAL_WIN, drop=FALSE]); attack_fixed[i] <- 100*inf_t/sum(sus)
     cfr_j  <- (hosp_d[i]*cfrH_d[i,] + (1-hosp_d[i])*cfrN_d[i,])[age_to_band]
-    ad <- list(le_d[i,], dwMM_d[i], dwSV_d[i], dwCH_d[i], duMM_d[i], duSV_d[i], duCH_d[i],
-               p14y_d[i], p14o_d[i], p90y_d[i], p90o_d[i])
+    ad <- list(le_d[i,], dwMM_d[i], dwSV_d[i], dwCH_d[i], duMM_d[i], duSV_d[i], duSB_d[i],
+               duCH_d[i], acy_d[i], aco_d[i], sby_d[i], sbo_d[i], chy_d[i], cho_d[i])
     fixed_base_pd[i,] <- do.call(outcome_one, c(list(symp_b, inf_t, 0, ri, hosp_d[i], cfr_j), ad))
     fixed_vac_pd[i,]  <- do.call(outcome_one, c(list(symp_v, inf_t, target_pop_elig*cov_d[i], ri, hosp_d[i], cfr_j), ad))
   }

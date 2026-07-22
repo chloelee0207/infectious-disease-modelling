@@ -36,25 +36,29 @@
 # so R_eff(t) = R0*season(t)*S/N is INDEPENDENT of gamma (gamma/sigma move only PEAK
 # TIMING & HEIGHT; size is driven by R0 & immunity). SEASONAL-PEAK scaling (envelope
 # rescaled so max = 1) makes the cited R0 the wet-season PEAK R_eff -- the honest,
-# load-bearing quantity: it avoids the mean-1 framing that hides a higher true peak, and
-# because the shape is CLIMATOLOGICAL rainfall the peakedness is not borrowed from a CHIKV
-# fit. R0 is drawn per LHS row from a Lognormal (R0_SCENARIO): "low" (Caicedo outside-
+# load-bearing quantity: it avoids the mean-1 framing that hides a higher true peak. The
+# shape is the FITTED CHIKV beta_t envelope (same vector, same town), which is easier to
+# justify than a rainfall proxy; the cost is that the peakedness is inherited from the
+# CHIKV fit. R0 is drawn per LHS row from a Lognormal (R0_SCENARIO): "low" (Caicedo outside-
 # Amazon 1.1-1.3) barely clears 1 at the peak -> no self-sustaining outbreak (deterministic
 # gives a tiny outbreak; stochastically ~extinction); "high" (urban-adapted 1.18-3.51,
 # med ~2.03) gives an outbreak with a genuine R0 band. NB R0(t) = R0*season(t) is just
 # beta_t/gamma with an imposed seasonal shape (standard seasonal forcing), NOT a new
 # formula. There is NO MAYV outbreak to fit, so this is PRIOR sampling, not fitting.
 #
-# WINDOW: 2025-W40 -> 2026-W38 (52 epi weeks), set by the rainfall envelope (differs
-# from MAYV_ca_pre_vacc.R's old 2025-W24 alignment).
+# WINDOW: 2025-W24 -> 2026-W22 (52 epi weeks), set by the CHIKV fit window. 2025 carries
+# an epi-week 53, so 2025-W24..W53 = 30 wks and 2026-W01..W22 = 22 wks.
 #
 # FIXED (NOT sampled):
-#   * seasonal envelope = CHIRPS climatological-rainfall shape (caldas_rain_season.rds,
-#     built by rainfall_season.R: rfh_avg, dekad->week, lag 0, mean-1, 2025-W40..2026-W38).
-#     It is a DETERMINISTIC covariate (a fixed weekly shape), so it does NOT enter the
-#     LHS; only uncertainty in a rainfall->mosquito->beta relationship would, and that
-#     is not modelled yet.
-#   * single index case seeded at the wet-season onset (first above-mean week).
+#   * seasonal envelope = FITTED CHIKV beta_t shape (caldas_beta_season.rds, written by
+#     the Caldas Novas CHIKV fit: best_beta_t / mean(best_beta_t), mean-1, 52 weeks,
+#     2025-W24..2026-W22). CHIKV and MAYV are assumed to share the same Aedes vector
+#     season, so the fitted CHIKV transmission signal is the best available EMPIRICAL
+#     proxy for MAYV seasonality -- more easily justified than a CHIRPS rainfall shape,
+#     which is only a driver of the vector rather than a transmission measurement.
+#     It is a DETERMINISTIC covariate (a fixed weekly shape), so it does NOT enter the LHS.
+#   * single index case seeded at the wet-season onset (first above-mean week = index 19,
+#     2025-W42).
 # ============================================================
 setwd("/Users/chloelee/Documents/R/summer_project")
 suppressMessages({library(readxl); library(dplyr); library(tidyr); library(ggplot2)})
@@ -101,16 +105,19 @@ N        <- age_df$pop_num * exp(growth_r*3)
 T_weeks <- 52
 
 # ------------------------------------------------------------
-# 3. Seasonal envelope from CHIRPS climatological rainfall (see rainfall_season.R)
+# 3. Seasonal envelope from the FITTED CHIKV beta_t (shared Aedes vector season)
 # ------------------------------------------------------------
-# caldas_rain_season.rds: mean-1 weekly transmission envelope for 2025-W40 -> 2026-W38,
-# built from rfh_avg (long-term normal) at lag 0.
-season_mean1 <- readRDS("caldas_rain_season.rds")
+# caldas_beta_season.rds: mean-1 weekly transmission envelope for 2025-W24 -> 2026-W22,
+# taken from the Caldas Novas CHIKV fit (best_beta_t / mean(best_beta_t)). Using the
+# fitted CHIKV shape rather than a CHIRPS rainfall proxy is the more easily justified
+# choice: it IS an observed transmission signal for the same vector in the same town.
+season_mean1 <- readRDS("caldas_beta_season.rds")
 stopifnot(length(season_mean1) == T_weeks, abs(mean(season_mean1) - 1) < 1e-6)
 # R0 INTERPRETATION. r0_is_peak = TRUE: R0 is the SEASONAL-PEAK R_eff (rescale envelope
-# so max = 1; yearly-avg R0 = R0*mean = ~0.41*R0). FALSE: R0 is the ANNUAL-MEAN (envelope
-# left at mean 1; wet peak reaches R0*max ~ 2.4x). Seed/wet-band logic below always uses
-# the mean-1 envelope so it is unaffected by this choice.
+# so max = 1; yearly-avg R0 = R0*mean = ~0.58*R0). FALSE: R0 is the ANNUAL-MEAN (envelope
+# left at mean 1; wet peak reaches R0*max ~ 1.7x). Seed/wet-band logic below always uses
+# the mean-1 envelope so it is unaffected by this choice. NB the CHIKV beta_t envelope is
+# FLATTER than the rainfall one it replaces (max 1.73 vs 2.44, min 0.58 vs 0.04).
 r0_is_peak <- TRUE
 season <- if (r0_is_peak) season_mean1 / max(season_mean1) else season_mean1
 
@@ -248,10 +255,10 @@ cat(sprintf("Busiest reported week (count): baseline %.1f -> propagated %.1f [%.
 # ------------------------------------------------------------
 # 9. Plots: propagated 95% bands (reported + true infections), with season shading
 # ------------------------------------------------------------
-wk_num  <- function(idx) ifelse(idx <= 14, idx + 39, idx - 14)   # 2025-W40..W53 | 2026-W01..W38
-tick_idx <- c(5, 10, 15, 22, 34, 46)
+wk_num  <- function(idx) ifelse(idx <= 30, idx + 23, idx - 30)   # 2025-W24..W53 | 2026-W01..W22
+tick_idx <- c(7, 17, 27, 40, 50)                      # 2025-W30/40/50, 2026-W10/20
 x_ticks  <- data.frame(week_index = tick_idx, week = wk_num(tick_idx))
-year_break <- 14.5                                    # 2025-W53 (idx 14) | 2026-W01 (idx 15)
+year_break <- 30.5                                    # 2025-W53 (idx 30) | 2026-W01 (idx 31)
 wet_start <- which(season_mean1 >= 1)[1]              # above-mean (wet) span (mean-1 envelope)
 wet_end   <- tail(which(season_mean1 >= 1), 1)
 season_layers <- list(
