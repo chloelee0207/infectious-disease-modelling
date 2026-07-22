@@ -1,5 +1,5 @@
 # ============================================================
-# MAYV_ca_engine_outputs.R -- comprehensive Excel export for the MAYV engine.
+# MAYV_ca_outputs.R -- comprehensive Excel export for the MAYV engine.
 # ------------------------------------------------------------
 # Reads MAYV_ca_engine_results.rds and writes caldas_mayv_engine_outputs.xlsx with,
 # for BOTH R0 treatments and TRUE + REPORTED versions of every outcome:
@@ -77,7 +77,7 @@ summary_df <- data.frame(
   value = c("wet-season PEAK (truncated Lognormal)", G$R0_scenario, "[1.18, 3.51]",
             sprintf("%.1f", G$R0_FIX), G$N_DRAWS, sprintf("%.1f%%", 100*G$p_outbreak),
             G$OUTBREAK_ATTACK_THRESH, length(ob), G$N_DRAWS,
-            sprintf("weeks %d-%d (2025-W40 .. 2026-W38)", min(G$EVAL_WIN), max(G$EVAL_WIN)),
+            sprintf("weeks %d-%d (2025-W24 .. 2026-W22)", min(G$EVAL_WIN), max(G$EVAL_WIN)),
             round(G$target_pop_elig), sprintf("%.0f%%", 100*median(G$cov_d)),
             sprintf("%.0f%%", 100*median(G$veb_d)), "Disease-blocking only, pre-outbreak",
             "Borrowed CHIKV (upper bound)", "full modelled epidemic quantity",

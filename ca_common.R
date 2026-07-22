@@ -2,7 +2,7 @@
 # ca_common.R -- shared helpers for the Caldas Novas vaccination scripts
 # ------------------------------------------------------------
 # Single source of truth for code shared across the CHIKV engine (CHIKV_ca_engine.R)
-# and MAYV_ca_vacc.R. Source it once near the top of each:
+# and MAYV_ca_engine.R. Source it once near the top of each:
 #     source("ca_common.R")
 # Provides:
 #   week_to_index()       calendar (year, epi-week) -> within-window index
@@ -34,7 +34,7 @@ qs <- function(v) as.numeric(quantile(v, c(.5, .025, .975), na.rm = TRUE))
 # Optional age re-weighting for the (age-sensitive) death calc. Defaults to 1 (no
 # correction). The pipeline sets age_weight to observed_prop / model_prop by age so
 # deaths use the DATA-based age distribution instead of the population-structure one.
-# Guarded with exists() so RE-sourcing ca_common.R (e.g. from CHIKV_outputs.R) does
+# Guarded with exists() so RE-sourcing ca_common.R (e.g. from CHIKV_ca_outputs.R) does
 # not clobber an age_weight the engine already set.
 if (!exists("age_weight")) age_weight <- 1
 
@@ -117,7 +117,7 @@ load_burden_params <- function(A,
 # ------------------------------------------------------------
 # Canonical Caldas Novas age-stratified case loader (the "ca_combined" SINAN sheet).
 # Single source of truth for the outbreak-window cases used by BOTH the fit
-# (CHIKV_ca_pre_vacc_optim.R) and the age-stratified script (weekly_age_stratified.R),
+# (CHIKV_ca_lhs.R) and the age-stratified script (weekly_age_stratified.R),
 # so neither has to depend on the older plain weekly_all series (weekly_case.R).
 # Window 2025-W24 -> 2026-W22 = 52 weeks (2025 has an epi Semana 53). Missing zero-case
 # weeks (2025-W33 & W40) are zero-filled on a canonical contiguous grid.
@@ -192,11 +192,8 @@ compute_age_weight <- function(inf_age_model, obs_band_prop, age_to_band) {
 # ============================================================
 # Shared SEIRV engine + DALY parameter loader
 # ------------------------------------------------------------
-# Single source of truth for the age-structured weekly SEIRV simulator and the
-# disease-progression (DALY) parameter loader, previously copy-pasted verbatim into
-# CHIKV_ca_vacc.R, CHIKV_ca_daly.R and CHIKV_ca_nnv.R. The unified engine
-# (CHIKV_ca_engine.R) is the only caller now; the old standalone scripts still work
-# because they redefine identical locals after sourcing this file.
+# Age-structured weekly SEIRV simulator and the disease-progression (DALY) parameter
+# loader. Callers: CHIKV_ca_engine.R and MAYV_ca_engine.R.
 # ============================================================
 
 # Age-structured weekly SEIRV with vaccination. Returns weekly age x week matrices

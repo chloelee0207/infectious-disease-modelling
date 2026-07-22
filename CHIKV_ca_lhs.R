@@ -1,27 +1,30 @@
 # ============================================================
-# Caldas Novas CHIKV — full uncertainty propagation (self-contained).
+# Caldas Novas CHIKV -- age-structured SEIR fit with full uncertainty propagation.
 #
-# Propagates FIVE uncertain inputs through the age-structured SEIR fit:
-#     gamma (recovery rate), sigma (latent rate), rho (reporting rate, Beta(20,60)),
-#     prop_symp (symptomatic fraction), FOI (long-term force of infection ->
-#     age-specific prior immunity). Note the fit only sees rho*prop_symp, so prop_symp
-#     mainly widens the TRUE-infection iceberg (symptomatic/hosp/deaths anchor at obs/rho).
-# For each Latin-Hypercube draw we RE-FIT the beta-spline + theta, so the final
-# R0 / attack-rate / infection / beta bands carry all five sources of uncertainty
-# instead of fixed point values.
+# Fits a time-varying transmission rate beta_t to 52 weeks of observed weekly
+# surveillance data (2025-W24 -> 2026-W22, 8,204 reported cases).
 #
-# WINDOWS -- the fit and the vaccine evaluation deliberately differ:
-#   FIT window (here): 2025-W24 -> 2026-W22 (52 weeks). This is the full extent of the
-#     observed surveillance data, and it is what pins the beta shape.
-#   VACCINE model (CHIKV_ca_engine.R): simulates a LONGER horizon (T_weeks + 26, with
-#     beta held flat past the data) and scores burden over a SHIFTED 52-week evaluation
-#     window, 2025-W40 -> 2026-W38. Vaccination both lowers AND delays the epidemic, so
-#     the delayed peak would fall partly outside this fit window; the shifted window is
-#     what captures the real (post-vaccination) outbreak.
+# beta_t = exp(natural cubic spline, 5 df) estimated over weeks 1-49 and held flat
+# for weeks 50-52, where the near-zero case counts cannot identify it.
 #
-# Self-contained: this script holds its own model machinery and exports everything the
-# vaccine chain needs (CHIKV_ca_lhs_ensemble.rds). Nothing here uses the retired
-# deterministic point-estimate fit. Modelling choices are set explicitly below.
+# Five uncertain inputs are propagated by Latin hypercube sampling, RE-FITTING the
+# beta spline and the negative-binomial overdispersion at every draw:
+#     gamma      recovery rate
+#     sigma      latent rate
+#     rho        reporting rate ~ Beta(20, 60)
+#     prop_symp  symptomatic fraction among infections
+#     FOI        force of infection -> age-specific prior immunity
+# The likelihood only ever sees rho * prop_symp, so neither is identifiable alone;
+# both are pinned by their priors rather than estimated.
+#
+# Prior immunity uses a TRUNCATED catalytic model, 1 - exp(-FOI * min(age, 12)).
+# CHIKV reached Brazil in 2014, so no one has been exposed for longer than ~12 years:
+# everyone aged 12+ carries the same immunity and children carry proportionally less.
+#
+# Draws implying an attack rate above 95%, or a predicted total more than 10% from
+# the observed 8,204, are dropped as epidemiologically infeasible.
+#
+# Exports CHIKV_ca_lhs_ensemble.rds for CHIKV_ca_engine.R.
 # ============================================================
 setwd("/Users/chloelee/Documents/R/summer_project")
 suppressMessages({library(readxl); library(dplyr); library(tidyr); library(ggplot2); library(splines)})
@@ -83,6 +86,8 @@ normalize <- function(x) tolower(gsub("[áàâã]","a",gsub("[éèê]","e",gsub(
 age_df <- read_excel("population.xlsx", sheet="prop_immune")
 age_df <- as.data.frame(age_df[normalize(age_df$municipality)==normalize("Caldas Novas"),])
 age_mid <- age_df$age_midpoint
+EXPOSURE_CAP <- 12                        # years since CHIKV entered Brazil (2014)
+exposure_age <- pmin(age_mid, EXPOSURE_CAP)
 pop_2022_total <- 98622; pop_2025_total <- 106820
 N <- age_df$pop_num * (pop_2025_total/pop_2022_total)      # grow 2022 -> 2025
 A <- nrow(age_df)
@@ -102,7 +107,8 @@ weeks <- 1:T_weeks; obs_total <- sum(observed_cases); week_1_cases <- observed_c
 # ------------------------------------------------------------
 prop_symp     <- 0.5242478
 df_spline     <- 5
-active_weeks  <- 49        # hold beta flat from 2026-W19 (index 49 in the 52-week window)
+active_weeks  <- 49        # beta spline-estimated over weeks 1-49, held flat to week 52
+rho_pt        <- 0.25      # reference reporting rate for the point-estimate fit
 prior_logmean <- log(0.54); prior_logsd <- 0.70
 peak_emphasis <- 10
 E0            <- rep(0, A)
@@ -117,7 +123,7 @@ year_break<- mean(c(max(caldas_obs$week_index[caldas_obs$Year==2025]), min(calda
 cfl <- function(v) coef(lm(v ~ basis_full - 1))
 gen_start <- c(cfl(log(c(seq(1.0,2.2,length.out=peak_idx), seq(2.2,0.5,length.out=active_weeks-peak_idx)))), log(50))
 refit <- function(foi, g, s, r, ps, start) {
-  Rimm <- 1 - exp(-foi * age_mid)                          # age-specific prior immunity (catalytic model)
+  Rimm <- 1 - exp(-foi * exposure_age)                     # age-specific prior immunity (catalytic model, exposure capped)
   pool <- sum(N * (1 - Rimm)); sfrac <- (N*(1-Rimm))/pool
   I0i  <- round(((week_1_cases/r/ps)/g) * sfrac)            # seed depends on rho, gamma, prop_symp, immunity
   nll  <- function(par) neg_log_lik(par, observed_cases, T_weeks, df_spline, A, N, Rimm,
@@ -156,7 +162,7 @@ cat(sprintf("Samplers: gamma~N(%.3f,%.3f) latent~N(%.3f,%.3f) rho~Beta(%.1f,%.1f
 # ------------------------------------------------------------
 # 6. Baseline at the median inputs (for the dashed reference)
 # ------------------------------------------------------------
-base <- refit(foi_med, 0.54, 1/0.60, 0.25, prop_symp, gen_start); warm <- base$par
+base <- refit(foi_med, 0.54, 1/0.60, rho_pt, prop_symp, gen_start); warm <- base$par
 pk   <- which.max(base$beta)
 cat(sprintf("Baseline (median inputs): immune %.1f%% | R0 at peak %.2f | attack %.1f%% | total %.0f\n",
             base$immune, (base$beta/0.54)[pk], base$attack, base$total))
@@ -166,7 +172,7 @@ base_theta <- 1 + exp(base$par[df_spline + 1])
 base_ll    <- sum(dnbinom(observed_cases, mu = pmax(base$pred, 1e-6), size = base_theta, log = TRUE))
 base_k     <- df_spline + 1                                   # spline coefs + log_theta (rho fixed)
 cat("\n--- Baseline point-estimate fit diagnostics ---\n")
-cat(sprintf("Best rho:   0.25 (fixed) | Best theta: %.2f\n", base_theta))
+cat(sprintf("Best rho:   %.3f (fixed) | Best theta: %.2f\n", rho_pt, base_theta))
 cat(sprintf("beta_t range: [%.3f, %.3f] | R0 = beta/gamma range: [%.2f, %.2f]\n",
             min(base$beta), max(base$beta), min(base$R0), max(base$R0)))
 cat(sprintf("Predicted total reported: %.0f | Observed total reported: %d  (%+.1f%%)\n",
@@ -263,25 +269,31 @@ write.csv(data.frame(draw=1:n, FOI=foi, gamma=gam, sigma=sig, rho=rho, prop_symp
 cat("\nSaved CHIKV_ca_prop_beta.png, CHIKV_ca_prop_R0.png, CHIKV_ca_prop_infections.png, CHIKV_ca_lhs_draws.csv\n")
 
 # ------------------------------------------------------------
-# 9. Export the FEASIBLE-draw ensemble for the standalone vaccine model.
-#    CHIKV_ca_engine.R loads this RDS instead of re-running the 1000 refits. The
-#    ensemble is SELF-CONTAINED (per-draw beta + N, age structure, observed cases,
-#    seed inputs), so the vaccine chain has NO dependency on the retired deterministic
-#    fit. It carries all five calibration uncertainties (FOI -> immunity, gamma, sigma,
-#    rho ~ Beta(20,60), prop_symp); the vaccine MC iterates over
-#    these draws and layers vaccine-parameter draws on top. The point estimate uses
-#    the median inputs (rho 0.25). Immunity Rimm and the seed I0 are recomputed per
-#    draw in the vaccine script from foi/gamma/rho (Rimm = 1 - exp(-foi * age_mid)).
+# 9. Export the feasible-draw ensemble for the engine.
+#    CHIKV_ca_engine.R loads this RDS instead of re-running the 1000 refits. It is
+#    self-contained (per-draw beta + N, age structure, observed cases, seed inputs)
+#    and carries all five calibration uncertainties (FOI -> immunity, gamma, sigma,
+#    rho ~ Beta(20,60), prop_symp); the engine iterates over these draws and layers
+#    vaccine-parameter draws on top. The point estimate uses the median inputs
+#    (rho 0.25). The engine recomputes immunity per draw from foi
+#    using the SAME truncated exposure vector exported here.
 ca_lhs_ensemble <- list(
   beta   = beta_mat[ok, , drop = FALSE],       # n_ok x T_weeks fitted beta_t per draw
   gamma  = gam[ok], sigma = sig[ok], rho = rho[ok], foi = foi[ok], prop_symp = psy[ok],
-  base_beta = base$beta, base_rho = 0.25, base_foi = foi_med,
+  base_beta = base$beta, base_rho = rho_pt, base_foi = foi_med,
   base_gamma = 0.54, base_sigma = 1/0.60, base_prop_symp = prop_symp,
   N = N, A = A, age_mid = age_mid, age_df = age_df,
+  exposure_cap = EXPOSURE_CAP, exposure_age = exposure_age,   # catalytic-model exposure window
   week_1_cases = week_1_cases,
   T_weeks = T_weeks, observed_cases = observed_cases,
   caldas_obs = caldas_obs, weeks = weeks, x_ticks = x_ticks, year_break = year_break
 )
 saveRDS(ca_lhs_ensemble, "CHIKV_ca_lhs_ensemble.rds")
-cat(sprintf("Saved CHIKV_ca_lhs_ensemble.rds (%d feasible draws) for the standalone vaccine model.\n",
-            length(ok)))
+
+# Mean-1 seasonal transmission envelope from the point-estimate fit. MAYV_ca_lhs.R
+# consumes this as its seasonal shape (MAYV has no case data of its own to fit).
+season_mean1 <- base$beta / mean(base$beta)
+stopifnot(length(season_mean1) == T_weeks, abs(mean(season_mean1) - 1) < 1e-6)
+saveRDS(season_mean1, "caldas_beta_season.rds")
+cat("Saved caldas_beta_season.rds (mean-1 beta envelope for the MAYV chain).\n")
+cat(sprintf("Saved CHIKV_ca_lhs_ensemble.rds (%d feasible draws).\n", length(ok)))

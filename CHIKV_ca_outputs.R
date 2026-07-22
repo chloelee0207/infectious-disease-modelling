@@ -1,12 +1,13 @@
 # ============================================================
-# CHIKV_ca_outputs.R -- Caldas Novas CHIKV burden presentation & export layer.
-# ------------------------------------------------------------
-# Reads CHIKV_ca_engine_results.rds (the unified single-LHS engine) and produces the
-# burden figures + Excel workbooks. Pure presentation -- no SEIR/MC of its own. The
-# burden totals here share the SAME per-draw propagation as the DALY and NNV outputs.
+# CHIKV_ca_outputs.R -- Caldas Novas CHIKV presentation and export layer.
 #
-# Run order:  source("CHIKV_ca_engine.R")    # engine -> CHIKV_ca_engine_results.rds
-#             source("CHIKV_ca_outputs.R")   # <- this file
+# Reads CHIKV_ca_engine_results.rds and writes the burden workbook and figures.
+# Pure presentation: no SEIR or Monte Carlo of its own, so every number here shares
+# the engine's per-draw propagation.
+#
+# Horizon is the 52-week observed window, 2025-W24 -> 2026-W22.
+#
+# Run order:  CHIKV_ca_engine.R  ->  this file
 # ============================================================
 library(dplyr); library(tidyr); library(ggplot2); library(writexl)
 if (!exists("fmtq")) source("ca_common.R")
@@ -17,9 +18,10 @@ G <- readRDS("CHIKV_ca_engine_results.rds")
 bmat <- G$per_draw; wk_symp <- G$wk_symp; wk_inf <- G$wk_inf; rho_i <- G$rho_i
 scen_names <- G$scen_names; vac_names <- G$vac_names
 timings <- G$timings; T_sim <- G$T_sim; T_data <- G$T_data
+arm_names <- G$arm_names; nnv <- G$nnv; NNV_OUT <- G$NNV_OUT; cov_d <- G$cov_d
 caldas_obs <- G$caldas_obs; observed_cases <- G$observed_cases
 outcomes <- c("infections","symptomatic","hospitalisations","deaths")   # burden subset of OUTCOMES
-EXTEND   <- T_sim - T_data
+stopifnot(T_sim == T_data)                        # horizon is the observed window
 base_true <- bmat[["No vaccine (baseline)"]][, outcomes, drop = FALSE]
 
 # averted (baseline - scenario), per draw, for the burden outcomes (computed locally
@@ -42,16 +44,12 @@ mc_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
 }))
 
 # ------------------------------------------------------------
-# 1. Full-horizon calendar axis (data weeks 1..52 + extension 53..T_sim)
+# 1. Calendar axis for the 52 observed weeks
 # ------------------------------------------------------------
 grid <- data.frame(week_index = 1:T_sim)
-grid$Year <- ifelse(grid$week_index <= T_data,
-                    caldas_obs$Year[match(grid$week_index, caldas_obs$week_index)], 2026L)
-grid$wk   <- ifelse(grid$week_index <= T_data,
-                    caldas_obs$week[match(grid$week_index, caldas_obs$week_index)],
-                    22L + (grid$week_index - T_data))
-tick_specs <- list(c(2025,30), c(2025,40), c(2025,50), c(2026,10),
-                   c(2026,20), c(2026,30), c(2026,40))
+grid$Year <- caldas_obs$Year[match(grid$week_index, caldas_obs$week_index)]
+grid$wk   <- caldas_obs$week[match(grid$week_index, caldas_obs$week_index)]
+tick_specs <- list(c(2025,30), c(2025,40), c(2025,50), c(2026,10), c(2026,20))
 x_breaks <- sapply(tick_specs, function(s) { j <- which(grid$Year==s[1] & grid$wk==s[2]); if (length(j)) j[1] else NA })
 x_labs   <- sapply(tick_specs, function(s) s[2])
 keep <- !is.na(x_breaks); x_breaks <- x_breaks[keep]; x_labs <- x_labs[keep]
@@ -59,7 +57,7 @@ year_break <- mean(c(max(which(grid$Year==2025)), min(which(grid$Year==2026))))
 grid$week_label <- sprintf("%d-W%02d", grid$Year, grid$wk)
 
 # ------------------------------------------------------------
-# 1b. Baseline (no-vaccine) weekly REPORTED cases over the full horizon.
+# 1b. Baseline (no-vaccine) weekly REPORTED cases.
 # wk_symp holds per-draw weekly TRUE symptomatic; reported = rho_i * true (rho_i
 # recycles down the columns, so row i is scaled by that draw's reporting rate).
 # ------------------------------------------------------------
@@ -68,42 +66,11 @@ rq <- apply(rep_mat, 2, quantile, c(.025, .5, .975), na.rm = TRUE)
 weekly_reported <- data.frame(
   week_index  = 1:T_sim,
   week_label  = grid$week_label,
-  observed    = c(observed_cases, rep(NA_real_, T_sim - T_data)),
+  observed    = observed_cases,
   pred_median = round(rq[2, ], 1),
   pred_lo     = round(rq[1, ], 1),
   pred_hi     = round(rq[3, ], 1))
 write.csv(weekly_reported, "CHIKV_ca_vacc_weekly_reported.csv", row.names = FALSE)
-
-# ------------------------------------------------------------
-# 1c. 52-epidemiological-week baseline window, anchored at vaccine implementation.
-# Vaccine went in at 2025-W40 (= week_index 17). A 52-week epi year from there ends
-# at 2026-W38 (= week_index 68), because the 2025 calendar carries a Semana 53.
-# (2025-W40 -> 2026-W39 would be 53 weeks; we drop the final week to keep 52.)
-# Reports the no-vaccine baseline weekly TRUE infections, TRUE symptomatic, and
-# REPORTED cases (each median + 95% UI), plus observed where it overlaps.
-# ------------------------------------------------------------
-w52_lo <- which(grid$week_label == "2025-W40")   # 17
-w52_hi <- w52_lo + 51                             # 68 = 2026-W38  (52 weeks)
-stopifnot(length(w52_lo) == 1, w52_hi <= T_sim, grid$week_label[w52_hi] == "2026-W38")
-w52 <- w52_lo:w52_hi
-
-qcols <- function(mat, d = 0) {   # per-week median/lo/hi over draws, rounded
-  q <- apply(mat[, w52, drop = FALSE], 2, quantile, c(.5, .025, .975), na.rm = TRUE)
-  data.frame(median = round(q[1, ], d), lo = round(q[2, ], d), hi = round(q[3, ], d))
-}
-inf_q  <- qcols(wk_inf [["No vaccine (baseline)"]])                 # true infections
-symp_q <- qcols(wk_symp[["No vaccine (baseline)"]])                 # true symptomatic
-rep_q  <- qcols(wk_symp[["No vaccine (baseline)"]] * rho_i, 1)      # reported cases
-obs52  <- ifelse(w52 <= T_data, observed_cases[w52], NA_real_)      # observed only to wk 52 (2026-W22)
-
-baseline_52wk <- data.frame(
-  epi_week            = 1:52,
-  week_label          = grid$week_label[w52],
-  observed_reported   = obs52,
-  true_infections     = inf_q$median,  true_infections_lo  = inf_q$lo,  true_infections_hi  = inf_q$hi,
-  true_symptomatic    = symp_q$median, true_symptomatic_lo = symp_q$lo, true_symptomatic_hi = symp_q$hi,
-  reported            = rep_q$median,  reported_lo         = rep_q$lo,  reported_hi         = rep_q$hi,
-  check.names = FALSE)
 
 # ------------------------------------------------------------
 # 2. Excel workbook
@@ -129,12 +96,12 @@ notes <- data.frame(
                 "Prior immunity model", "Vaccine efficacy (shared VE_inf/VE_block)",
                 "Coverage of 18-59", "Weekly delivery", "Deployment delay",
                 "Uncertainty", "Feasible LHS draws"),
-  value = c(sprintf("2025-W24 -> 2026-W22 (%d wk), fit", T_data),
-            sprintf("%d weeks (data + %d extension)", T_sim, EXTEND),
+  value = c(sprintf("2025-W24 -> 2026-W22 (%d wk)", T_data),
+            sprintf("%d weeks; no projection beyond the observed data", T_sim),
             format(sum(observed_cases), big.mark=","),
             "Beta(20,60), median 0.25 (point est.)",
             "Beta(35.84,32.56), median 0.524",
-            "catalytic FOI (1 - exp(-FOI*age)), FOI ~ Lognormal",
+            "truncated catalytic: 1 - exp(-FOI*min(age,12)), FOI ~ Lognormal",
             "Beta(98.9%, 96.7-99.8)",
             "Beta(30%, 95% 20-40)",
             "Beta(10%, 95% 9-11)",
@@ -142,41 +109,24 @@ notes <- data.frame(
             "5-input LHS (FOI,gamma,sigma,rho,prop_symp) re-fit per draw + vaccine LHS",
             as.character(nrow(base_true))),
   stringsAsFactors = FALSE)
+notes <- rbind(notes, data.frame(parameter = "Scope of the window", value = paste(
+  "Burden for EVERY scenario, including the no-vaccine baseline, is counted only within",
+  "the 52-week observed window (2025-W24 -> 2026-W22). The model is not projected past",
+  "the data, since that needs an assumed transmission rate beyond the last observation.",
+  "Averted = baseline - scenario, both inside this window. For infection-blocking arms",
+  "the within-window reduction combines cases prevented outright with cases the vaccine",
+  "delays past 2026-W22; neither is counted after the window, by design."),
+  stringsAsFactors = FALSE))
 
 sheets <- list(notes = notes, baseline_true_reported = base_tbl,
                vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
                scenario_totals = scenario_totals, weekly_reported = weekly_reported,
                burden_audit = G$burden_audit, burden_audit_by_age = G$burden_audit_by_age)
 write_xlsx(sheets, "CHIKV_ca_vacc_outputs.xlsx")
-cat("Wrote CHIKV_ca_vacc_outputs.xlsx (sheets:", paste(names(sheets), collapse=", "), ")\n")
+cat("Wrote CHIKV_ca_vacc_outputs.xlsx  (sheets:", paste(names(sheets), collapse=", "), ")\n")
 
 # ------------------------------------------------------------
-# 2b. Standalone 52-epidemiological-week workbook (CHIKV_ca_vacc_outputs_52.xlsx).
-# Same tab set as the full-horizon workbook, but framed on the 52-week epi year
-# 2025-W40 -> 2026-W38 (vaccine implementation -> +52 wk). The burden-total tabs
-# are whole-outbreak totals; the 52-week window contains 99.5% of modelled
-# infections (see 1c), so those totals ARE the 52-week model's totals to <0.5%.
-# The weekly tab is the baseline TRUE infections / TRUE symptomatic / REPORTED
-# series sliced to the 52 weeks.
-# ------------------------------------------------------------
-notes_52 <- notes
-notes_52$value[notes_52$parameter == "Simulation horizon"] <-
-  sprintf("52 epi-week window 2025-W40 -> 2026-W38 (vaccine implementation; contains %.1f%% of modelled infections)",
-          99.5)
-notes_52 <- rbind(notes_52,
-  data.frame(parameter = "Note on totals",
-             value = "Burden-total tabs are whole-outbreak totals (>99% within the 52-wk window); weekly tab is sliced to the window.",
-             stringsAsFactors = FALSE))
-
-sheets_52 <- list(notes = notes_52, baseline_true_reported = base_tbl,
-                  vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
-                  scenario_totals = scenario_totals, weekly_reported = baseline_52wk,
-                  burden_audit = G$burden_audit, burden_audit_by_age = G$burden_audit_by_age)
-write_xlsx(sheets_52, "CHIKV_ca_vacc_outputs_52.xlsx")
-cat("Wrote CHIKV_ca_vacc_outputs_52.xlsx (sheets:", paste(names(sheets_52), collapse=", "), ")\n")
-
-# ------------------------------------------------------------
-# 3. Figure (a): epidemic-curve ribbons, per timing (extended horizon)
+# 3. Figure (a): epidemic-curve ribbons, per timing
 # ------------------------------------------------------------
 scen_cols <- c("No vaccination"="grey55", "Disease-blocking"="#4393c3",
                "Disease + infection blocking"="#d6604d")
@@ -214,8 +164,8 @@ make_epicurve <- function(tn) {
     scale_x_continuous(breaks=x_breaks, labels=x_labs) +
     scale_y_continuous(labels=scales::comma) +
     labs(x="Week", y="Predicted symptomatic cases", colour=NULL, fill=NULL,
-         title=paste0("CHIKV symptomatic cases at 30% coverage"),
-         caption=sprintf("Green = vaccination rollout window; band = 95%% UI", T_data)) +
+         title=paste0("CHIKV symptomatic cases at 30% coverage")) +
+         # caption=sprintf("Green = vaccination rollout window; band = 95%% UI", T_data)) +
     theme_bw(11) + theme(legend.position="bottom", plot.title=element_text(face="bold"),
                          panel.grid.minor=element_blank())
 }
@@ -223,13 +173,6 @@ for (tn in names(timings)) {
   p <- make_epicurve(tn); print(p)
   ggsave(sprintf("CHIKV_ca_vacc_epicurve_%s.png", gsub("[^a-z0-9]+","_",tolower(tn))), p, width=8, height=5, dpi=120)
 }
-
-# 3b. Same pre-outbreak epicurve, zoomed to the 52-epi-week model window
-# (2025-W40 -> 2026-W38); pre-outbreak rollout starts at the window's first week.
-p52 <- make_epicurve("pre-outbreak") +
-  coord_cartesian(xlim = c(w52_lo - 0.5, w52_hi + 0.5)) +
-  labs(title = "CHIKV symptomatic cases (2025-W40 - 2026-W38)")
-print(p52); ggsave("CHIKV_ca_vacc_epicurve_52wk.png", p52, width=8, height=5, dpi=120)
 
 # ------------------------------------------------------------
 # 4. Figure (b): averted burden by timing x arm (median + 95% UI)
@@ -258,15 +201,12 @@ p_bar <- ggplot(mc_long, aes(timing, med, fill=arm)) +
 print(p_bar); ggsave("CHIKV_ca_vacc_averted_mc.png", p_bar, width=10, height=4.2, dpi=120)
 
 # ------------------------------------------------------------
-# 5. Figure (c): baseline observed vs predicted reported cases, full horizon.
-# Overlays the observed weekly reported dots on the no-vaccine predicted median +
-# 95% UI so the tail (weeks 53..78, past end of data) can be inspected directly.
+# 5. Figure (c): baseline observed vs predicted reported cases.
 # ------------------------------------------------------------
 pred <- data.frame(week = 1:T_sim, lo = rq[1, ], med = rq[2, ], hi = rq[3, ])
 obs  <- data.frame(week = 1:T_data, cases = observed_cases)
 p_fit <- ggplot(pred, aes(week, med)) +
   geom_vline(xintercept = year_break, linetype = "dashed", colour = "grey60") +
-  geom_vline(xintercept = T_data + 0.5, linetype = "dotted", colour = "grey60") +
   geom_ribbon(aes(ymin = lo, ymax = hi), fill = "#4393c3", alpha = .20) +
   geom_line(colour = "#2166ac", linewidth = .9) +
   geom_point(data = obs, aes(week, cases), inherit.aes = FALSE, size = 1.3, colour = "grey20") +
@@ -274,10 +214,110 @@ p_fit <- ggplot(pred, aes(week, med)) +
   scale_y_continuous(labels = scales::comma) +
   labs(x = "Week", y = "Reported CHIKV cases", colour = NULL,
        title = "Caldas Novas CHIKV: observed vs predicted reported cases (no vaccine)",
-       caption = sprintf("Dots = observed; line = median, band = 95%% UI over LHS draws; dashed = year boundary; dotted = end of data (wk %d)", T_data)) +
+       caption = "Dots = observed; line = median, band = 95% UI over LHS draws; dashed = year boundary") +
   theme_bw(11) + theme(plot.title = element_text(face = "bold"), panel.grid.minor = element_blank())
 print(p_fit); ggsave("CHIKV_ca_vacc_fit_observed.png", p_fit, width = 9, height = 5, dpi = 120)
 
-cat("Saved figures: CHIKV_ca_vacc_epicurve_{actual_rollout,start_of_2026,pre_outbreak}.png,",
-    "CHIKV_ca_vacc_epicurve_52wk.png, CHIKV_ca_vacc_averted_mc.png, CHIKV_ca_vacc_fit_observed.png\n")
-cat("Wrote CHIKV_ca_vacc_weekly_reported.csv (week-by-week predicted reported, 95% UI)\n")
+# ------------------------------------------------------------
+# 6. DALYs: workbook + composition and averted figures.
+# YLD (by phase), YLL and DALY are per-draw engine outcomes, consistent draw-for-draw
+# with the burden totals. DALY = YLD + YLL, undiscounted.
+# ------------------------------------------------------------
+base_daly <- bmat[["No vaccine (baseline)"]]
+daly_by_scenario <- do.call(rbind, lapply(scen_names, function(nm) {
+  m <- bmat[[nm]]; b <- nm == "No vaccine (baseline)"
+  data.frame(timing = if (b) "No vaccine" else sub(" \\|.*","",nm),
+             arm    = if (b) "No vaccine" else sub(".*\\| ","",nm),
+             YLD = fmtq(m[,"yld"]), YLL = fmtq(m[,"yll"]), DALY = fmtq(m[,"daly"]),
+             YLD_acute = fmtq(m[,"yld_acute"]), YLD_subacute = fmtq(m[,"yld_subacute"]),
+             YLD_chronic = fmtq(m[,"yld_chronic"]), row.names = NULL, check.names = FALSE)
+}))
+daly_averted <- do.call(rbind, lapply(vac_names, function(nm) {
+  m <- G$averted[[nm]]
+  data.frame(timing = sub(" \\|.*","",nm), arm = sub(".*\\| ","",nm),
+             DALY_averted = fmtq(m[,"daly"]),
+             pct_DALY = sprintf("%.1f%%", 100*median(m[,"daly"]/base_daly[,"daly"], na.rm=TRUE)),
+             row.names = NULL, check.names = FALSE)
+}))
+write_xlsx(list(daly_by_scenario = daly_by_scenario, daly_averted = daly_averted),
+           "CHIKV_ca_daly_outputs.xlsx")
+
+# (a) baseline DALY composition
+comp <- data.frame(component = factor(c("YLD (acute)","YLD (sub-acute)","YLD (chronic)","YLL"),
+                     levels = c("YLD (acute)","YLD (sub-acute)","YLD (chronic)","YLL")),
+                   value = c(median(base_daly[,"yld_acute"]), median(base_daly[,"yld_subacute"]),
+                             median(base_daly[,"yld_chronic"]), median(base_daly[,"yll"])))
+p_comp <- ggplot(comp, aes("Baseline", value, fill = component)) +
+  geom_col(width = .55) +
+  scale_fill_manual(values = c("#c6dbef","#6baed6","#2171b5","#d6604d"), name = NULL) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x = NULL, y = "DALYs (median)", title = "Caldas Novas CHIKV: baseline DALY composition (no vaccine)") +
+  theme_bw(11) + theme(plot.title = element_text(face = "bold"), panel.grid.minor = element_blank())
+print(p_comp); ggsave("CHIKV_ca_daly_composition.png", p_comp, width = 5.5, height = 5, dpi = 120)
+
+# (b) DALYs averted by timing x arm
+dav_long <- do.call(rbind, lapply(vac_names, function(nm) {
+  m <- G$averted[[nm]]
+  data.frame(timing = sub(" \\|.*","",nm), arm = sub(".*\\| ","",nm),
+             med = median(m[,"daly"], na.rm=TRUE),
+             lo = quantile(m[,"daly"],.025,na.rm=TRUE), hi = quantile(m[,"daly"],.975,na.rm=TRUE),
+             row.names = NULL)
+}))
+dav_long$timing <- factor(dav_long$timing, levels = names(timings))
+dav_long$arm    <- factor(dav_long$arm, levels = arm_names)
+p_dav <- ggplot(dav_long, aes(timing, med, fill = arm)) +
+  geom_col(position = position_dodge(.8), width = .7) +
+  geom_errorbar(aes(ymin = lo, ymax = hi), position = position_dodge(.8), width = .25, linewidth = .4) +
+  scale_fill_manual(values = c("Disease-blocking"="#9ecae1","Disease + infection blocking"="#08519c"), name = NULL) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x = NULL, y = "DALYs averted (vs no vaccine), median + 95% UI",
+       title = "Caldas Novas CHIKV: DALYs averted by vaccination timing") +
+  theme_bw(11) + theme(plot.title = element_text(face="bold", hjust=.5),
+                       axis.text.x = element_text(angle = 20, hjust = 1),
+                       legend.position = "bottom", panel.grid.minor = element_blank())
+print(p_dav); ggsave("CHIKV_ca_daly_averted.png", p_dav, width = 8, height = 4.5, dpi = 120)
+
+# ------------------------------------------------------------
+# 7. Number Needed to Vaccinate: workbook + figure (pre-outbreak rollout).
+# NNV = doses / burden averted, per draw, so it shares the burden/DALY propagation.
+# NNV < 1 means one dose averts more than one case via herd protection.
+# ------------------------------------------------------------
+out_labs <- c(symptomatic = "Symptomatic case", hospitalisations = "Hospitalisation",
+              deaths = "Death", daly = "DALY")
+nnv_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
+  m <- nnv[[nm]]
+  vals <- setNames(as.list(vapply(NNV_OUT, function(o) fmtq(m[, o], 1), character(1))),
+                   unname(out_labs[NNV_OUT]))
+  data.frame(timing = sub(" \\|.*","",nm), arm = sub(".*\\| ","",nm), vals,
+             row.names = NULL, check.names = FALSE)
+}))
+write_xlsx(list(nnv = nnv_tbl), "CHIKV_ca_nnv_outputs.xlsx")
+
+focus_names <- grep("pre-outbreak", vac_names, value = TRUE)
+nnv_plt <- do.call(rbind, lapply(focus_names, function(nm) {
+  m <- nnv[[nm]]
+  do.call(rbind, lapply(NNV_OUT, function(o) {
+    q <- quantile(m[, o], c(.5, .025, .975), na.rm = TRUE)
+    data.frame(arm = sub(".*\\| ","",nm), outcome = o, med = q[1], lo = q[2], hi = q[3], row.names = NULL)
+  }))
+}))
+nnv_plt$outcome <- factor(out_labs[nnv_plt$outcome], levels = unname(out_labs))
+nnv_plt$arm     <- factor(nnv_plt$arm, levels = arm_names)
+p_nnv <- ggplot(nnv_plt, aes(arm, med, fill = arm)) +
+  geom_hline(yintercept = 1, linetype = "dashed", colour = "grey45", linewidth = .3) +
+  geom_col(width = .65, colour = "grey30", linewidth = .2) +
+  geom_errorbar(aes(ymin = lo, ymax = hi), width = .2, linewidth = .35) +
+  facet_wrap(~ outcome, nrow = 1, scales = "free_y") +
+  scale_fill_manual(values = c("Disease-blocking"="#4393c3","Disease + infection blocking"="#d6604d"), name = NULL) +
+  scale_y_log10(breaks = scales::breaks_log(n = 6), labels = scales::label_number(drop0trailing = TRUE)) +
+  labs(x = NULL, y = "NNV to avert one outcome (pre-outbreak rollout)",
+       title = "Number Needed to Vaccinate (NNV)") +
+  theme_bw(11) + theme(plot.title = element_text(face = "bold"),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        legend.position = "bottom", panel.grid.minor = element_blank())
+print(p_nnv); ggsave("CHIKV_ca_nnv.png", p_nnv, width = 9, height = 4.6, dpi = 120)
+
+cat(sprintf("Saved figures: epicurve_{%s}, averted_mc, fit_observed, daly_composition, daly_averted, nnv\n",
+            paste(gsub("[^a-z0-9]+","_",tolower(names(timings))), collapse=", ")))
+cat("Wrote CHIKV_ca_vacc_outputs.xlsx, CHIKV_ca_daly_outputs.xlsx, CHIKV_ca_nnv_outputs.xlsx,",
+    "CHIKV_ca_vacc_weekly_reported.csv\n")

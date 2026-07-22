@@ -28,6 +28,8 @@
 library(dplyr); library(writexl); library(readxl)
 
 set.seed(4041)
+if (!file.exists("CHIKV_ca_engine_results.rds"))
+  stop("CHIKV_ca_engine_results.rds not found -- run CHIKV_ca_engine.R first.")
 G <- readRDS("CHIKV_ca_engine_results.rds")
 ND <- G$N_DRAWS
 scen_names <- G$scen_names
@@ -250,7 +252,7 @@ sh_notes <- data.frame(item = c(
  "Goncalves et al. 2024, Rev Bras Epidemiol 27:e240026 (Rio de Janeiro, 2019).",
  "Brazilian MoH / SES-RJ chikungunya flowchart, 10/01/19.",
  "CHIKV_ca_engine_results.rds -- 1000-draw unified Monte Carlo, Caldas Novas.",
- sprintf("52 weeks, index %d-%d (2025-W40 -> 2026-W38).", min(G$EVAL_WIN), max(G$EVAL_WIN)),
+ sprintf("52 weeks, index %d-%d (2025-W24 -> 2026-W22).", min(G$EVAL_WIN), max(G$EVAL_WIN)),
  sprintf("%d. Cost parameters are drawn by Latin hypercube and paired row-wise with the epidemic draws, so cost and epidemic uncertainty propagate jointly.", ND),
  "NON-HOSPITALISED modelled symptomatic cases (hospitalised excluded to avoid double counting).",
  "Hospitalised cases from the engine (symptomatic x hospitalisation rate).",

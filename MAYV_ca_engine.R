@@ -16,7 +16,7 @@
 #
 # BORROWED severity/DALY (no MAYV-specific data): CHIKV disease-progression params via
 # load_burden_params()/load_daly_params() in ca_common.R -- a CHIKV-equivalent UPPER
-# BOUND on MAYV severity (the established MAYV convention, see MAYV_ca_vacc.R).
+# BOUND on MAYV severity, since MAYV has no severity data of its own.
 #
 # VACCINE: DISEASE-BLOCKING ONLY (VE_inf = 0 -> infections identical across arms; only
 # symptomatic/hosp/deaths/DALY move), pre-outbreak campaign, coverage/VE_block/delivery
@@ -36,7 +36,7 @@ set.seed(2031)
 
 # ------------------------------------------------------------
 # SEIRV simulator (disease-blocking capable, seed_week-aware, FLAT immunity).
-# Lifted from MAYV_ca_vacc.R so the engine is self-contained. coverage = 0 reproduces
+# Self-contained SEIRV. coverage = 0 reproduces
 # the pre-vacc baseline exactly. With VE_inf = 0 (our only mode) infections are
 # vaccine-invariant; the vaccine only scales new_symptomatic by (1 - VE_block*coverage).
 # ------------------------------------------------------------
@@ -289,15 +289,15 @@ use_cond <- length(outbreak) >= 20
 draw_set <- if (use_cond) outbreak else seq_len(N_DRAWS)
 bandq    <- function(M) apply(M[draw_set, , drop = FALSE], 2, quantile, c(.025,.5,.975), na.rm = TRUE)
 bb <- bandq(wk_base); bv <- bandq(wk_vacc)
-wk_num   <- function(idx) ifelse(idx <= 14, idx + 39, idx - 14)     # 2025-W40..W53 | 2026-W01..W38
-tick_idx <- c(5, 10, 15, 22, 34, 46); xt <- data.frame(i = tick_idx, w = wk_num(tick_idx))
+wk_num   <- function(idx) ifelse(idx <= 30, idx + 23, idx - 30)     # 2025-W24..W53 | 2026-W01..W22
+tick_idx <- c(7, 17, 27, 37, 47); xt <- data.frame(i = tick_idx, w = wk_num(tick_idx))
 red <- 100 * (base_pd[draw_set,"symptomatic"] - vac_pd[draw_set,"symptomatic"]) / base_pd[draw_set,"symptomatic"]
 rq  <- quantile(red, c(.5,.025,.975), na.rm = TRUE)
 lab <- sprintf("%% symptomatic reduction\nDisease-blocking: %.1f%% (%.1f-%.1f%%)", rq[1], rq[2], rq[3])
 roll_end <- start_pre + max(1, round(1 / mean(del_d))) - 0.5       # ~vaccine rollout window
 pdf_df <- data.frame(week = 1:T_weeks, b_lo=bb[1,], b_md=bb[2,], b_hi=bb[3,],
                      v_lo=bv[1,], v_md=bv[2,], v_hi=bv[3,])
-ttl <- sprintf("MAYV symptomatic cases (2025-W40 - 2026-W38) | R0 '%s'%s", E$R0_scenario,
+ttl <- sprintf("MAYV symptomatic cases (2025-W24 - 2026-W22) | R0 '%s'%s", E$R0_scenario,
                if (use_cond) sprintf(", conditional on outbreak (%d/%d)", length(outbreak), N_DRAWS)
                else ", all draws (~no outbreak)")
 p_epi <- ggplot(pdf_df, aes(week)) +
@@ -331,7 +331,7 @@ base_curve_plot <- function(M, draws, ytitle, ttl, fn) {
   ggsave(fn, p, width = 8, height = 4.5, dpi = 120); cat("Saved baseline (no-vaccine) plot:", fn, "\n")
 }
 base_curve_plot(wk_base, draw_set, "Predicted symptomatic cases (no vaccine)",
-  sprintf("MAYV symptomatic, NO vaccine (2025-W40 - 2026-W38) | R0 '%s'%s", E$R0_scenario,
+  sprintf("MAYV symptomatic, NO vaccine (2025-W24 - 2026-W22) | R0 '%s'%s", E$R0_scenario,
           if (use_cond) sprintf(", conditional on outbreak (%d/%d)", length(outbreak), N_DRAWS) else ", all draws"),
   sprintf("MAYV_ca_baseline_%s.png", E$R0_scenario))
 
@@ -405,7 +405,7 @@ if (!is.na(R0_FIX)) {
     annotate("text", x = T_weeks, y = Inf, label = labF, hjust = 1, vjust = 1.2, size = 3.1) +
     scale_x_continuous(breaks = xt$i, labels = xt$w) +
     labs(x = "Week", y = "Predicted symptomatic cases",
-         title = sprintf("MAYV symptomatic cases (2025-W40 - 2026-W38) | representative outbreak, fixed R0 = %.1f", R0_FIX)) +
+         title = sprintf("MAYV symptomatic cases (2025-W24 - 2026-W22) | representative outbreak, fixed R0 = %.1f", R0_FIX)) +
     theme_bw(12) + theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 10.5),
                          panel.grid.minor = element_blank())
   fix_fn <- sprintf("MAYV_ca_symptomatic_fixedR0_%.1f.png", R0_FIX)

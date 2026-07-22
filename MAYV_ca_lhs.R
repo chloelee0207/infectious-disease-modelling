@@ -1,15 +1,14 @@
 # ============================================================
 # Caldas Novas MAYV -- uncertainty propagation for the forward outbreak
-# (self-contained; the standalone LHS twin of MAYV_ca_pre_vacc.R).
+# (self-contained).
 #
-# WHAT THIS IS. MAYV_ca_pre_vacc.R runs the outbreak at FIXED natural-history /
-# reporting values and builds its band only from the borrowed CHIKV seasonal-shape
-# posterior. This script instead PROPAGATES the parameter PRIORS through the same
-# forward SEIR: for each Latin-Hypercube draw it re-runs the simulation, so the
-# reported / infection / attack-rate bands carry the natural-history + reporting
-# + R0 + prior-immunity uncertainty. There is NO fitting -- there is no observed
-# MAYV outbreak in Caldas Novas to fit, so these are PRIOR-predictive bands, not
-# posteriors. This is MAYV's OWN pipeline; the CHIKV LHS/engine are left untouched.
+# WHAT THIS IS. Parameter PRIORS are propagated through a forward SEIR: each Latin
+# hypercube draw re-runs the simulation, so the reported / infection / attack-rate
+# bands carry natural-history, reporting, R0 and prior-immunity uncertainty. There is
+# NO fitting -- Caldas Novas has no observed MAYV outbreak -- so these are
+# PRIOR-PREDICTIVE bands, not posteriors. The seasonal transmission SHAPE is borrowed
+# from the fitted CHIKV envelope (caldas_beta_season.rds, written by CHIKV_ca_lhs.R).
+# Window: 52 weeks, 2025-W24 -> 2026-W22, matching the CHIKV chain.
 #
 # SAMPLED INPUTS (priors, from model_calibration.xlsx MAYV rows unless noted):
 #     gamma   ~ Normal(rate)         recovery rate  (7 d central, 5-10 d range)
@@ -64,7 +63,7 @@ setwd("/Users/chloelee/Documents/R/summer_project")
 suppressMessages({library(readxl); library(dplyr); library(tidyr); library(ggplot2)})
 
 # ------------------------------------------------------------
-# 1. SEIR forward simulator (identical to MAYV_ca_pre_vacc.R: seeded at seed_week)
+# 1. SEIR forward simulator (seeded at seed_week)
 # ------------------------------------------------------------
 seir_baseline_MAYV <- function(
     T_weeks, A, N, R_init_prop, I0, base_beta, sigma, gamma, rho, prop_symp,

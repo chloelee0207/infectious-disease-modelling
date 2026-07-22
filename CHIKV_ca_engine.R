@@ -1,30 +1,27 @@
 # ============================================================
-# CHIKV_ca_engine.R -- Caldas Novas CHIKV UNIFIED Monte Carlo engine.
-# ------------------------------------------------------------
-# ONE Latin-hypercube uncertainty propagation from start to end. A single set of
-# N_DRAWS parameter draws (transmission resampled from the LHS ensemble + vaccine
-# efficacy, delivery, delay, SAMPLED coverage ~ Beta(30%,20-40), severity/CFR and
-# every DALY input) is drawn ONCE; each draw is then run through the SEIRV for the
-# baseline and every vaccination scenario. EVERY outcome is derived from those same
-# runs, so they are mutually consistent draw-for-draw:
-#     infections, symptomatic, hospitalisations, deaths        (burden)
-#     hospitalised / non-hospitalised / chronic case counts    (severity phases)
-#     YLD (acute, chronic), YLL, DALY                          (health loss)
-#     doses delivered, and NNV = doses / burden averted        (per-draw ratio)
-# NNV is NOT a separate experiment -- it is doses_i / (baseline_i - scenario_i) at
-# that draw's sampled coverage, so its uncertainty is the SAME propagation as the
-# burden/DALY numbers. Coverage is sampled (not a fixed sweep) per user request.
+# CHIKV_ca_engine.R -- Caldas Novas CHIKV Monte Carlo engine.
 #
-# Saves BOTH per-draw matrices and aggregated median/95% UI to
-# CHIKV_ca_engine_results.rds. Severity-phase COUNTS are saved so a cost layer
-# (cost to avert a hospitalisation, phase-specific costs, ICERs) can be added later
-# as a cheap post-hoc multiply -- no SEIR re-run.
+# One Latin hypercube propagation from transmission through to health loss. Each of
+# N_DRAWS draws combines a re-fitted transmission trajectory resampled from
+# CHIKV_ca_lhs_ensemble.rds with vaccine efficacy, delivery, delay, sampled coverage,
+# severity, case fatality and every DALY input. That single draw is then run through
+# the SEIRV for the no-vaccine baseline and every vaccination scenario, so all
+# outcomes are mutually consistent draw for draw:
+#     infections, symptomatic, hospitalisations, deaths
+#     severity-phase counts (hospitalised / non-hospitalised / sub-acute / chronic)
+#     YLD by phase, YLL, DALYs
+#     doses delivered, and NNV = doses / burden averted at that draw's coverage
 #
-# The SEIRV simulator and DALY loader now live in ca_common.R (single source of
-# truth); this engine is their only caller.
+# The horizon is the 52-week observed window, 2025-W24 -> 2026-W22. Nothing is
+# projected past the surveillance data, so no transmission rate is ever assumed.
+# Every scenario, baseline included, is scored over this same fixed window; anything
+# a scenario pushes beyond week 52 is out of scope for all scenarios alike.
 #
-# Run order:  source("ca_common.R"); source("CHIKV_ca_lhs.R")  # ensemble (slow, once)
-#             source("CHIKV_ca_engine.R")                        # this file
+# Saves per-draw matrices and aggregated median / 95% UI to
+# CHIKV_ca_engine_results.rds. Severity-phase COUNTS are saved so the cost layer can
+# multiply unit costs on afterwards without re-running the SEIR.
+#
+# Run order:  CHIKV_ca_lhs.R  (slow, once)  ->  this file  ->  outputs / costs
 # ============================================================
 library(dplyr); library(tidyr)
 source("ca_common.R")   # fmtq, qs, burden, load_burden_params, load_caldas_age_cases,
@@ -32,13 +29,11 @@ source("ca_common.R")   # fmtq, qs, burden, load_burden_params, load_caldas_age_
 
 # ---- knobs --------------------------------------------------
 N_DRAWS    <- 1000
-PHASE_MODE <- "hosp_severity"   # YLD severity axis (see daly_counts); matches CHIKV_ca_daly.R
 # YLD accrues by RECOVERY FUNNEL: each patient is counted exactly once, in the phase in
 # which their illness resolved, using that group's total time-to-recovery as the duration.
 # Phases are NOT nested -- dur_chronic (0.53 yr) is O'Driscoll's median time to arthralgia
 # resolution measured FROM INFECTION (6.39 mo, 95% CI 5.48-7.66), so it already spans the
 # acute and sub-acute period; adding those on top would double count.
-SEV_SPLIT  <- c(mild_mod = 0.47, severe = 0.53)   # used only by PHASE_MODE == "acute_split"
 set.seed(2030)
 
 # ------------------------------------------------------------
@@ -57,16 +52,17 @@ cat(sprintf("Loaded ensemble: %d feasible transmission draws; running %d-draw un
 # ------------------------------------------------------------
 # 1. Horizon + per-draw immunity/seed
 # ------------------------------------------------------------
-EXTEND <- 26; T_sim <- T_data + EXTEND
-extend_beta <- function(b) c(b, rep(b[length(b)], EXTEND))
-draw_immunity <- function(foi) 1 - exp(-foi * age_mid)
+T_sim <- T_data                 # 52 weeks; no projection beyond the observed data
+# Immunity rebuilt exactly as the fit built it: truncated catalytic model, 12-yr cap.
+exposure_age  <- E$exposure_age
+draw_immunity <- function(foi) 1 - exp(-foi * exposure_age)
 draw_I0 <- function(foi, rho, gamma, ps) {
   Rimm <- draw_immunity(foi); sf <- N*(1-Rimm)/sum(N*(1-Rimm))
   round(((week_1_cases/rho/ps)/gamma) * sf)
 }
 
 # ------------------------------------------------------------
-# 2. Vaccine programme + scenarios (52-week index) + 52-wk evaluation window
+# 2. Vaccine programme, scenarios and evaluation window
 # ------------------------------------------------------------
 target_age <- rep(0, A); target_age[c(4,5,6,7,8)] <- 1     # eligible = 18-59
 target_pop_elig <- sum(N[target_age == 1])
@@ -75,15 +71,15 @@ idx_of <- function(yr, wk) caldas_obs$week_index[caldas_obs$Year == yr & caldas_
 start_s1 <- idx_of(2026, 16)     # IXCHIQ real rollout
 start_s2 <- idx_of(2026, 1)      # start of 2026
 start_s3 <- idx_of(2025, 40)     # pre-outbreak
-timings <- list("actual rollout" = start_s1, "start of 2026" = start_s2, "pre-outbreak" = start_s3)
+start_s0 <- 1                    # earliest: rollout completes well before the outbreak
+timings <- list("earliest (2025-W24)" = start_s0, "actual rollout" = start_s1,
+                "start of 2026" = start_s2, "pre-outbreak" = start_s3)
 arm_names <- c("Disease-blocking", "Disease + infection blocking")
 
-# 52-epi-week evaluation window anchored at pre-outbreak implementation
-# (2025-W40 -> 2026-W38); all burden/DALY/NNV accrued only within it.
-EVAL_WIN <- start_s3:(start_s3 + 51)
-stopifnot(length(EVAL_WIN) == 52, max(EVAL_WIN) <= T_sim)
-cat(sprintf("52-week evaluation window: index %d-%d (2025-W40 -> 2026-W38).\n",
-            min(EVAL_WIN), max(EVAL_WIN)))
+# Burden accrues over the full observed window, 2025-W24 -> 2026-W22.
+EVAL_WIN <- seq_len(T_sim)
+stopifnot(length(EVAL_WIN) == 52)
+cat("Evaluation window: weeks 1-52 (2025-W24 -> 2026-W22), matching the data.\n")
 
 scen <- list(list(name="No vaccine (baseline)", timing="No vaccine", arm="No vaccine",
                   start=NA_integer_, type="base"))
@@ -100,7 +96,7 @@ invisible(list2env(load_burden_params(A), globalenv()))     # ps_*, hosp_*, cfr_
 obs_band_prop <- load_caldas_age_cases()$obs_band_prop
 Rimm_base <- draw_immunity(E$base_foi)
 I0_base   <- draw_I0(E$base_foi, E$base_rho, E$base_gamma, E$base_prop_symp)
-out_base_pt <- seirv_vaccinated(T_sim, A, N, Rimm_base, I0_base, E0, extend_beta(E$base_beta),
+out_base_pt <- seirv_vaccinated(T_sim, A, N, Rimm_base, I0_base, E0, E$base_beta,
                  E$base_sigma, E$base_gamma, E$base_rho, target_age, 0, 0.10, start_s3,
                  0, 0, immun_delay, prop_symp = E$base_prop_symp)
 age_weight <- compute_age_weight(rowSums(out_base_pt$new_infections), obs_band_prop, age_to_band)
@@ -174,22 +170,10 @@ outcome_one <- function(out, covv, hosp_j, cfr_j, le_band,
   n_chronic  <- sy*chy/sy_t + so*cho/so_t
   f_acute    <- n_acute / st
 
-  yld_sub <- 0
-  if (PHASE_MODE == "hosp_severity") {
-    yld_ac  <- (n_nonhosp*dwmm*dumm + n_hosp*dwsv*dusv) * f_acute  # resolved <=14d
-    yld_sub <- n_subacute * dwch * dusb   # resolved 14d-3m (CHRONIC disability weight)
-    yld_chr <- n_chronic  * dwch * duch   # resolved >3m
-  } else if (PHASE_MODE == "three_phase") {
-    # Middle term already represents the post-acute (>14d) phase, so no separate
-    # sub-acute YLD is added here -- it would double count.
-    yld_ac  <- st*dwmm*dumm + (sy*(1-p14y) + so*(1-p14o))*dwsv*dusv
-    yld_chr <- n_chronic * dwch * duch
-  } else {                                     # acute_split
-    # Chronic term is keyed on "not recovered by 14d", i.e. it already absorbs the
-    # sub-acute group; no separate sub-acute YLD (would double count).
-    yld_ac  <- st * (SEV_SPLIT["mild_mod"]*dwmm*dumm + SEV_SPLIT["severe"]*dwsv*dusv)
-    yld_chr <- (sy*(1-p14y) + so*(1-p14o)) * dwch * duch
-  }
+  yld_ac  <- (n_nonhosp*dwmm*dumm + n_hosp*dwsv*dusv) * f_acute  # resolved <=14d
+  yld_sub <- n_subacute * dwch * dusb   # resolved 14d-3m (CHRONIC disability weight)
+  yld_chr <- n_chronic  * dwch * duch   # resolved >3m
+
   deaths <- sum(symp_dw * cfr_j)
   yll    <- sum(symp_dw * cfr_j * le_band[age_to_band])
   yld_tot <- unname(yld_ac + yld_sub + yld_chr)
@@ -253,17 +237,16 @@ per_draw <- setNames(lapply(scen_names, function(x)
 wk_symp  <- setNames(lapply(scen_names, function(x) matrix(NA_real_, N_DRAWS, T_sim)), scen_names)
 wk_inf   <- setNames(lapply(scen_names, function(x) matrix(NA_real_, N_DRAWS, T_sim)), scen_names)
 
-cat(sprintf("Running %d draws x %d scenarios (%s YLD)...\n", N_DRAWS, length(scen), PHASE_MODE))
+cat(sprintf("Running %d draws x %d scenarios...\n", N_DRAWS, length(scen)))
 for (i in 1:N_DRAWS) {
   ti <- t_idx[i]
-  beta_ext <- extend_beta(E$beta[ti, ])
   Rimm_i <- draw_immunity(E$foi[ti]); I0_i <- draw_I0(E$foi[ti], E$rho[ti], E$gamma[ti], E$prop_symp[ti])
   cfr_j  <- (hosp_d[i]*cfrH_d[i, ] + (1-hosp_d[i])*cfrN_d[i, ])[age_to_band]
   for (s in scen) {
     if (s$type == "base") { covv <- 0; vi <- 0; vb <- 0; st <- start_s3 }
     else { covv <- cov_d[i]; vb <- ve_d[i]; vi <- if (s$type == "both") ve_d[i] else 0
            st <- min(s$start + delay_d[i], T_sim) }
-    out <- seirv_vaccinated(T_sim, A, N, Rimm_i, I0_i, E0, beta_ext, E$sigma[ti], E$gamma[ti],
+    out <- seirv_vaccinated(T_sim, A, N, Rimm_i, I0_i, E0, E$beta[ti, ], E$sigma[ti], E$gamma[ti],
              E$rho[ti], target_age, covv, deliv_d[i], st, vi, vb, immun_delay, prop_symp = E$prop_symp[ti])
     per_draw[[s$name]][i, ] <- outcome_one(out, covv, hosp_d[i], cfr_j, le_d[i, ],
                                  dwMM_d[i], dwSV_d[i], dwCH_d[i], duMM_d[i], duSV_d[i],
@@ -327,7 +310,7 @@ saveRDS(list(
   timings = timings, arm_names = arm_names,
   OUTCOMES = OUTCOMES, NNV_OUT = NNV_OUT, EVAL_WIN = EVAL_WIN,
   T_sim = T_sim, T_data = T_data, caldas_obs = caldas_obs, observed_cases = observed_cases,
-  N_DRAWS = N_DRAWS, PHASE_MODE = PHASE_MODE, target_pop_elig = target_pop_elig,
+  N_DRAWS = N_DRAWS, target_pop_elig = target_pop_elig,
   cov_d = cov_d, ve_d = ve_d,
   burden_audit = burden_audit, burden_audit_by_age = burden_audit_by_age),
   "CHIKV_ca_engine_results.rds")
