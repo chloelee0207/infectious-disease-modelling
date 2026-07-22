@@ -22,3 +22,20 @@
 
 # ---- Archived output figures ----
 Archive/
+
+# ---- Excel/LibreOffice lock files ----
+~$*
+
+# ---- INPUT data: hand-maintained source parameters, MUST be tracked ----
+# (the *.xlsx / *.csv rules above ignore generated outputs; these are exceptions)
+!Abad-Franch_seroprevalence.xlsx
+!beta_hyolim.xlsx
+!costs.xlsx
+!disease_progression.xlsx
+!model_calibration.xlsx
+!mortality_2024.xlsx
+!population.xlsx
+!population_MAYV.xlsx
+!weekly_case.xlsx
+# NOTE: rainfall.xlsx (129 MB) exceeds GitHub's 100 MB file limit and stays ignored.
+#       Source: see rainfall_season.R / extract_caldas_rainfall.R for provenance.
