@@ -46,15 +46,21 @@ tr_burden <- function(mat, draws) do.call(rbind, lapply(burden_cols, function(o)
              check.names = FALSE, row.names = NULL)
 }))
 
-# --- vaccine: averted (true + reported) and NNV (doses / averted) ----------------
+# --- vaccine: averted (true + reported), NNV, and averted per 100,000 doses -------
+# per-100k-doses (= 1e5 x averted / doses, per draw) is scale-free -> comparable across
+# settings of different population size.
 tr_vaccine <- function(base, vac, draws) do.call(rbind, lapply(vax_cols, function(o) {
   av_t <- base[draws, o] - vac[draws, o]; av_r <- av_t * rho_draw[draws]
   doses <- vac[draws, "doses"]
   nnv_t <- doses / av_t; nnv_t[!is.finite(nnv_t) | nnv_t < 0] <- NA
   nnv_r <- doses / av_r; nnv_r[!is.finite(nnv_r) | nnv_r < 0] <- NA
+  p100_t <- 1e5 * av_t / doses; p100_t[!is.finite(p100_t) | p100_t < 0] <- NA
+  p100_r <- 1e5 * av_r / doses; p100_r[!is.finite(p100_r) | p100_r < 0] <- NA
   data.frame(outcome = o,
              `averted true`         = fmtq(av_t, d_of(o)),
              `averted reported`     = fmtq(av_r, d_of(o)),
+             `averted true per 100k doses`     = fmtq(p100_t, 0),
+             `averted reported per 100k doses` = fmtq(p100_r, 0),
              `NNV per true averted`     = fmtq(nnv_t, 0),
              `NNV per reported averted` = fmtq(nnv_r, 0),
              check.names = FALSE, row.names = NULL)
@@ -92,8 +98,8 @@ sheets <- list(
   fixedR0_vaccine        = tr_vaccine(fb, fv, all_draws),
   per_draw_sampledR0     = draw_dump(base_pd, G$attack_base, all_draws %in% ob),
   per_draw_fixedR0       = draw_dump(fb, G$attack_fixed, rep(TRUE, G$N_DRAWS)))
-write_xlsx(sheets, "caldas_mayv_engine_outputs.xlsx")
-cat("Wrote caldas_mayv_engine_outputs.xlsx (sheets:", paste(names(sheets), collapse = ", "), ")\n")
+write_xlsx(sheets, "MAYV_ca_outputs.xlsx")
+cat("Wrote MAYV_ca_outputs.xlsx (sheets:", paste(names(sheets), collapse = ", "), ")\n")
 cat(sprintf("  sampled-R0 (P=%.0f%%): true infections %s | reported cases %s\n", 100*G$p_outbreak,
             fmtq(base_pd[ob,"infections"],0), fmtq(base_pd[ob,"reported"],0)))
 cat(sprintf("  fixed-R0 (%.1f):       true infections %s | reported cases %s\n", G$R0_FIX,

@@ -43,6 +43,23 @@ mc_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
              row.names = NULL)
 }))
 
+# Outcomes averted per 100,000 doses (= 1e5 x averted / doses, per draw). Scale-free,
+# so it is comparable across settings of different population size. Infections are
+# averted only by the infection-blocking arm, so disease-blocking shows NA there.
+per100k_outcomes <- c(infections="Infections", symptomatic="Symptomatic",
+                      hospitalisations="Hospitalisations", deaths="Deaths", daly="DALYs")
+mc_per100k <- do.call(rbind, lapply(vac_names, function(nm) {
+  doses <- bmat[[nm]][,"doses"]
+  base_o <- bmat[["No vaccine (baseline)"]]; scen_o <- bmat[[nm]]
+  cells <- lapply(names(per100k_outcomes), function(o) {
+    r <- 1e5 * (base_o[,o] - scen_o[,o]) / doses; r[!is.finite(r) | r < 0] <- NA
+    fmtq(r, 0)
+  })
+  setNames(data.frame(timing = sub(" \\|.*","",nm), arm = sub(".*\\| ","",nm),
+                      cells, row.names = NULL, check.names = FALSE),
+           c("timing","arm", unname(per100k_outcomes)))
+}))
+
 # ------------------------------------------------------------
 # 1. Calendar axis for the 52 observed weeks
 # ------------------------------------------------------------
@@ -120,6 +137,7 @@ notes <- rbind(notes, data.frame(parameter = "Scope of the window", value = past
 
 sheets <- list(notes = notes, baseline_true_reported = base_tbl,
                vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
+               averted_per_100k_doses = mc_per100k,
                scenario_totals = scenario_totals, weekly_reported = weekly_reported,
                burden_audit = G$burden_audit, burden_audit_by_age = G$burden_audit_by_age)
 write_xlsx(sheets, "CHIKV_ca_vacc_outputs.xlsx")
@@ -282,8 +300,8 @@ print(p_dav); ggsave("CHIKV_ca_daly_averted.png", p_dav, width = 8, height = 4.5
 # NNV = doses / burden averted, per draw, so it shares the burden/DALY propagation.
 # NNV < 1 means one dose averts more than one case via herd protection.
 # ------------------------------------------------------------
-out_labs <- c(symptomatic = "Symptomatic case", hospitalisations = "Hospitalisation",
-              deaths = "Death", daly = "DALY")
+out_labs <- c(infections = "Infection", symptomatic = "Symptomatic case",
+              hospitalisations = "Hospitalisation", deaths = "Death", daly = "DALY")
 nnv_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
   m <- nnv[[nm]]
   vals <- setNames(as.list(vapply(NNV_OUT, function(o) fmtq(m[, o], 1), character(1))),
@@ -315,7 +333,7 @@ p_nnv <- ggplot(nnv_plt, aes(arm, med, fill = arm)) +
   theme_bw(11) + theme(plot.title = element_text(face = "bold"),
         axis.text.x = element_blank(), axis.ticks.x = element_blank(),
         legend.position = "bottom", panel.grid.minor = element_blank())
-print(p_nnv); ggsave("CHIKV_ca_nnv.png", p_nnv, width = 9, height = 4.6, dpi = 120)
+print(p_nnv); ggsave("CHIKV_ca_nnv.png", p_nnv, width = 11, height = 4.6, dpi = 120)
 
 cat(sprintf("Saved figures: epicurve_{%s}, averted_mc, fit_observed, daly_composition, daly_averted, nnv\n",
             paste(gsub("[^a-z0-9]+","_",tolower(names(timings))), collapse=", ")))

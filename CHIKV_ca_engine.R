@@ -188,7 +188,9 @@ outcome_one <- function(out, covv, hosp_j, cfr_j, le_band,
 OUTCOMES <- c("infections","symptomatic","hospitalisations","deaths",
               "n_nonhosp","n_subacute","n_chronic",
               "yld_acute","yld_subacute","yld_chronic","yld","yll","daly","doses")
-NNV_OUT  <- c("symptomatic","hospitalisations","deaths","daly")   # NNV reported for these
+# NNV reported for these. "infections" is meaningful only for infection-blocking arms;
+# disease-blocking leaves infections unchanged, so its infection NNV is undefined (NA).
+NNV_OUT  <- c("infections","symptomatic","hospitalisations","deaths","daly")
 
 # ------------------------------------------------------------
 # 5. ONE Latin-hypercube design (42 stratified uniforms) + transmission resample.
