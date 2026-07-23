@@ -135,9 +135,23 @@ notes <- rbind(notes, data.frame(parameter = "Scope of the window", value = past
   "delays past 2026-W22; neither is counted after the window, by design."),
   stringsAsFactors = FALSE))
 
+# doses actually delivered to the eligible 18-59, and dose wastage, per vaccine
+# scenario. wastage = doses administered to already-immune / already-infected eligible
+# people (cannot benefit) = 1 - on-target (reached susceptibles) / administered; it
+# rises for later-timing rollouts, when more of the eligible are already infected.
+pct3 <- function(x) { q <- quantile(x, c(.5,.025,.975), na.rm = TRUE)
+  sprintf("%.1f%% (%.1f - %.1f%%)", 100*q[1], 100*q[2], 100*q[3]) }
+doses_wastage <- do.call(rbind, lapply(vac_names, function(nm) {
+  del <- G$doses_deliv[[nm]]; ont <- G$doses_ontarget[[nm]]
+  data.frame(timing = sub(" \\|.*","",nm), arm = sub(".*\\| ","",nm),
+             `doses delivered` = fmtq(del, 0),
+             `doses on-target (to susceptibles)` = fmtq(ont, 0),
+             `wastage %` = pct3(1 - ont/del), check.names = FALSE, row.names = NULL)
+}))
+
 sheets <- list(notes = notes, baseline_true_reported = base_tbl,
                vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
-               averted_per_100k_doses = mc_per100k,
+               averted_per_100k_doses = mc_per100k, doses_wastage = doses_wastage,
                scenario_totals = scenario_totals, weekly_reported = weekly_reported,
                burden_audit = G$burden_audit, burden_audit_by_age = G$burden_audit_by_age)
 write_xlsx(sheets, "CHIKV_ca_vacc_outputs.xlsx")

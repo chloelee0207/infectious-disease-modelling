@@ -294,7 +294,7 @@ sh_notes <- data.frame(item = c(
  "There is NO published MAYV cost-of-illness study. CHIKV unit costs and regimens are BORROWED as the closest alphavirus proxy (same acute-arthralgia care pathway). MAYV is generally milder, so these are a CHIKV-equivalent UPPER bound, not measured MAYV costs.",
  "Brazilian MoH / SES-RJ chikungunya flowchart, 10/01/19.",
  "MAYV_ca_engine_results.rds -- unified Monte Carlo off the MAYV LHS ensemble.",
- sprintf("52 weeks, index %d-%d (2025-W24 -> 2026-W22; CHIKV beta_t seasonal envelope).", min(G$EVAL_WIN), max(G$EVAL_WIN)),
+ sprintf("52 weeks, index %d-%d (2025-W24 -> 2026-W22; hybrid CHIKV-beta + dry-season envelope).", min(G$EVAL_WIN), max(G$EVAL_WIN)),
  sprintf("CONDITIONAL ON AN OUTBREAK: %d of %d draws took off (P = %.1f%%, attack > %.1f%% of susceptibles). Unconditional means would be dominated by non-take-off draws.", length(ok), ND, 100*G$p_outbreak, G$OUTBREAK_ATTACK_THRESH),
  sprintf("%d. Cost parameters are drawn by Latin hypercube and paired row-wise with the epidemic draws, so cost and epidemic uncertainty propagate jointly.", ND),
  "NON-HOSPITALISED modelled symptomatic cases (hospitalised excluded to avoid double counting).",

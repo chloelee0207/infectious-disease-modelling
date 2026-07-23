@@ -86,7 +86,9 @@ seirv_vaccinated_MAYV <- function(
     new_infections[,t] <- new_I_week
     new_symptomatic[,t] <- prop_symp*new_I_week*(1 - VE_block*coverage_frac[,t])
   }
-  list(new_infections = new_infections, coverage_frac = coverage_frac)
+  list(new_infections = new_infections, coverage_frac = coverage_frac,
+       total_used_age = total_used_age,        # doses ADMINISTERED per age group
+       V_covered = V_covered)                  # cumulative doses that reached SUSCEPTIBLES
 }
 
 # ------------------------------------------------------------
@@ -102,7 +104,7 @@ n_ens <- length(E$R0); N_DRAWS <- n_ens
 cat(sprintf("Loaded MAYV ensemble: %d draws | R0 scenario '%s' (peak=%s) | seed wk %d\n",
             n_ens, E$R0_scenario, E$r0_is_peak, seed_week))
 
-EVAL_WIN <- 1:T_weeks   # outbreak resolves within the 52-week CHIKV-beta window (2025-W24 -> 2026-W22)
+EVAL_WIN <- 1:T_weeks   # 52-week hybrid window (2025-W24 -> 2026-W22); the dry-season tail lets every outbreak resolve inside it
 
 # ------------------------------------------------------------
 # 1. Severity + DALY params (borrowed CHIKV) + eligibility + uniform age weight
@@ -115,8 +117,14 @@ young_idx  <- which(age_to_band <= 4); old_idx <- which(age_to_band >= 5)
 target_age <- rep(0, A); target_age[c(4,5,6,7,8)] <- 1     # eligible adults 18-59 (as CHIKV/MAYV vacc)
 target_pop_elig <- sum(N[target_age == 1])
 immun_delay <- 2
-start_pre   <- 1        # pre-outbreak campaign from the window open (2025-W24), before the seed (wk 19)
-stopifnot(start_pre < seed_week)
+# Pre-outbreak campaign at 2025-W40 = window index 17 (idx = epi-week - 23 for 2025),
+# the SAME week as the CHIKV engine's pre-outbreak rollout (start_s3 = idx_of(2025,40)).
+# The vaccination week is a real programmatic date and must match across the two
+# diseases. Infection is now seeded at the window open (seed_week = 1), so vaccination
+# comes AFTER the seed -- but the beta trough over W24-W35 keeps the outbreak small
+# until ~W40, so the campaign still lands pre-surge (as it does for CHIKV).
+start_pre   <- 17L      # 2025-W40, matching CHIKV start_s3
+stopifnot(start_pre >= 1, start_pre <= T_weeks, seed_week >= 1, seed_week <= T_weeks)
 
 # ------------------------------------------------------------
 # 2. Outcome extractor: symptomatic-by-age (already vaccine-adjusted) -> all outcomes.
@@ -215,6 +223,10 @@ per_draw <- setNames(lapply(scen_names, function(x)
   matrix(NA_real_, N_DRAWS, length(OUTCOMES), dimnames = list(NULL, OUTCOMES))), scen_names)
 attack_base <- numeric(N_DRAWS)
 wk_base <- wk_vacc <- matrix(NA_real_, N_DRAWS, T_weeks)   # weekly symptomatic (for the epicurve)
+# Dose accounting (pre-outbreak campaign, so R0-independent): doses ADMINISTERED to
+# the eligible 18-59, and the subset that reached SUSCEPTIBLES. Wastage = doses given
+# to already-immune eligible people (they cannot benefit) = 1 - on-target/administered.
+doses_deliv <- doses_ontarget <- numeric(N_DRAWS)
 
 cat(sprintf("Running %d draws (baseline + pre-outbreak disease-blocking), conditioning threshold attack > %.1f%%...\n",
             N_DRAWS, OUTBREAK_ATTACK_THRESH))
@@ -226,6 +238,8 @@ for (i in 1:N_DRAWS) {
            target_age, cov_d[i], del_d[i], start_pre, VE_inf = 0, VE_block = veb_d[i],
            immun_delay = immun_delay, prop_symp = psi, E0 = E0, seed_week = seed_week)
   ninf <- run$new_infections; covf <- run$coverage_frac
+  doses_deliv[i]    <- sum(run$total_used_age)              # actually administered
+  doses_ontarget[i] <- sum(run$V_covered[, T_weeks])       # reached susceptibles
   inf_tot <- sum(ninf[, EVAL_WIN, drop = FALSE])
   attack_base[i] <- 100 * inf_tot / sum(sus)
 
@@ -290,7 +304,7 @@ draw_set <- if (use_cond) outbreak else seq_len(N_DRAWS)
 bandq    <- function(M) apply(M[draw_set, , drop = FALSE], 2, quantile, c(.025,.5,.975), na.rm = TRUE)
 bb <- bandq(wk_base); bv <- bandq(wk_vacc)
 wk_num   <- function(idx) ifelse(idx <= 30, idx + 23, idx - 30)     # 2025-W24..W53 | 2026-W01..W22
-tick_idx <- c(7, 17, 27, 37, 47); xt <- data.frame(i = tick_idx, w = wk_num(tick_idx))
+tick_idx <- c(7, 17, 27, 40, 50); xt <- data.frame(i = tick_idx, w = wk_num(tick_idx))
 red <- 100 * (base_pd[draw_set,"symptomatic"] - vac_pd[draw_set,"symptomatic"]) / base_pd[draw_set,"symptomatic"]
 rq  <- quantile(red, c(.5,.025,.975), na.rm = TRUE)
 lab <- sprintf("%% symptomatic reduction\nDisease-blocking: %.1f%% (%.1f-%.1f%%)", rq[1], rq[2], rq[3])
@@ -423,6 +437,7 @@ saveRDS(list(
   OUTBREAK_ATTACK_THRESH = OUTBREAK_ATTACK_THRESH,
   fixed_base_pd = fixed_base_pd, fixed_vac_pd = fixed_vac_pd, attack_fixed = attack_fixed,
   R0_FIX = R0_FIX, rho_draw = E$rho,
+  doses_deliv = doses_deliv, doses_ontarget = doses_ontarget,
   agg_burden_cond = agg_burden_cond, agg_averted_cond = agg_averted_cond, agg_nnv_cond = agg_nnv_cond,
   scen_names = scen_names, vac_name = vac_name, OUTCOMES = OUTCOMES, NNV_OUT = NNV_OUT,
   N_DRAWS = N_DRAWS, PHASE_MODE = PHASE_MODE, R0_scenario = E$R0_scenario,

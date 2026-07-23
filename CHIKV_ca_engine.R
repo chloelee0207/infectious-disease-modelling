@@ -241,6 +241,11 @@ per_draw <- setNames(lapply(scen_names, function(x)
   matrix(NA_real_, N_DRAWS, length(OUTCOMES), dimnames = list(NULL, OUTCOMES))), scen_names)
 wk_symp  <- setNames(lapply(scen_names, function(x) matrix(NA_real_, N_DRAWS, T_sim)), scen_names)
 wk_inf   <- setNames(lapply(scen_names, function(x) matrix(NA_real_, N_DRAWS, T_sim)), scen_names)
+# Dose accounting per scenario: doses ADMINISTERED to eligible 18-59, and the subset
+# reaching SUSCEPTIBLES. Wastage = 1 - on-target/administered (doses to already-immune
+# or already-infected eligible people; higher for later-timing rollouts).
+doses_deliv    <- setNames(lapply(scen_names, function(x) numeric(N_DRAWS)), scen_names)
+doses_ontarget <- setNames(lapply(scen_names, function(x) numeric(N_DRAWS)), scen_names)
 
 cat(sprintf("Running %d draws x %d scenarios...\n", N_DRAWS, length(scen)))
 for (i in 1:N_DRAWS) {
@@ -259,6 +264,8 @@ for (i in 1:N_DRAWS) {
                                  acy_d[i], aco_d[i], sby_d[i], sbo_d[i], chy_d[i], cho_d[i])
     wk_symp[[s$name]][i, ] <- colSums(out$new_symptomatic)
     wk_inf [[s$name]][i, ] <- colSums(out$new_infections)
+    doses_deliv   [[s$name]][i] <- sum(out$total_used_age)          # administered
+    doses_ontarget[[s$name]][i] <- sum(out$V_covered[, T_sim])      # reached susceptibles
   }
   if (i %% 100 == 0) cat("  ", i, "/", N_DRAWS, "\n")
 }
@@ -316,6 +323,7 @@ saveRDS(list(
   OUTCOMES = OUTCOMES, NNV_OUT = NNV_OUT, EVAL_WIN = EVAL_WIN,
   T_sim = T_sim, T_data = T_data, caldas_obs = caldas_obs, observed_cases = observed_cases,
   N_DRAWS = N_DRAWS, target_pop_elig = target_pop_elig,
+  doses_deliv = doses_deliv, doses_ontarget = doses_ontarget,
   cov_d = cov_d, ve_d = ve_d,
   burden_audit = burden_audit, burden_audit_by_age = burden_audit_by_age),
   "CHIKV_ca_engine_results.rds")

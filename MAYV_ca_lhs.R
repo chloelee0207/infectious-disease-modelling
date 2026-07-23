@@ -6,9 +6,10 @@
 # hypercube draw re-runs the simulation, so the reported / infection / attack-rate
 # bands carry natural-history, reporting, R0 and prior-immunity uncertainty. There is
 # NO fitting -- Caldas Novas has no observed MAYV outbreak -- so these are
-# PRIOR-PREDICTIVE bands, not posteriors. The seasonal transmission SHAPE is borrowed
-# from the fitted CHIKV envelope (caldas_beta_season.rds, written by CHIKV_ca_lhs.R).
-# Window: 52 weeks, 2025-W24 -> 2026-W22, matching the CHIKV chain.
+# PRIOR-PREDICTIVE bands, not posteriors. The seasonal transmission SHAPE is a HYBRID
+# (caldas_hybrid_season.rds, built by MAYV_build_hybrid_envelope.R): the fitted CHIKV
+# beta_t for the rise/peak + a climatological dry-season tail.
+# Window: 52 weeks, 2025-W24 -> 2026-W22.
 #
 # SAMPLED INPUTS (priors, from model_calibration.xlsx MAYV rows unless noted):
 #     gamma   ~ Normal(rate)         recovery rate  (7 d central, 5-10 d range)
@@ -36,28 +37,27 @@
 # TIMING & HEIGHT; size is driven by R0 & immunity). SEASONAL-PEAK scaling (envelope
 # rescaled so max = 1) makes the cited R0 the wet-season PEAK R_eff -- the honest,
 # load-bearing quantity: it avoids the mean-1 framing that hides a higher true peak. The
-# shape is the FITTED CHIKV beta_t envelope (same vector, same town), which is easier to
-# justify than a rainfall proxy; the cost is that the peakedness is inherited from the
-# CHIKV fit. R0 is drawn per LHS row from a Lognormal (R0_SCENARIO): "low" (Caicedo outside-
+# shape is the HYBRID envelope (CHIKV beta_t rise/peak + climatological dry-season tail). R0 is drawn per LHS row from a Lognormal (R0_SCENARIO): "low" (Caicedo outside-
 # Amazon 1.1-1.3) barely clears 1 at the peak -> no self-sustaining outbreak (deterministic
 # gives a tiny outbreak; stochastically ~extinction); "high" (urban-adapted 1.18-3.51,
 # med ~2.03) gives an outbreak with a genuine R0 band. NB R0(t) = R0*season(t) is just
 # beta_t/gamma with an imposed seasonal shape (standard seasonal forcing), NOT a new
 # formula. There is NO MAYV outbreak to fit, so this is PRIOR sampling, not fitting.
 #
-# WINDOW: 2025-W24 -> 2026-W22 (52 epi weeks), set by the CHIKV fit window. 2025 carries
-# an epi-week 53, so 2025-W24..W53 = 30 wks and 2026-W01..W22 = 22 wks.
+# WINDOW: 2025-W24 -> 2026-W22 (52 epi weeks). Extended past the CHIKV fit window (which
+# ends 2026-W22) so the dry-season tail sits inside the window and every outbreak resolves.
+# 2025 carries an epi-week 53, so 2025-W24..W53 = 30 wks and 2026-W01..W22 = 22 wks.
 #
 # FIXED (NOT sampled):
-#   * seasonal envelope = FITTED CHIKV beta_t shape (caldas_beta_season.rds, written by
-#     the Caldas Novas CHIKV fit: best_beta_t / mean(best_beta_t), mean-1, 52 weeks,
-#     2025-W24..2026-W22). CHIKV and MAYV are assumed to share the same Aedes vector
-#     season, so the fitted CHIKV transmission signal is the best available EMPIRICAL
-#     proxy for MAYV seasonality -- more easily justified than a CHIRPS rainfall shape,
-#     which is only a driver of the vector rather than a transmission measurement.
-#     It is a DETERMINISTIC covariate (a fixed weekly shape), so it does NOT enter the LHS.
-#   * single index case seeded at the wet-season onset (first above-mean week = index 19,
-#     2025-W42).
+#   * seasonal envelope = HYBRID (caldas_hybrid_season.rds, built by
+#     MAYV_build_hybrid_envelope.R): fitted CHIKV beta_t for the data-constrained rise
+#     and peak (2025-W24..2026-W10) spliced onto the CHIRPS climatological dry season for
+#     the tail (2026-W10..W22). CHIKV and MAYV share the Aedes vector, so the fitted CHIKV
+#     signal is the best proxy for the rise; the dry-season tail (which the beta lacks --
+#     its post-outbreak tail is an unconstrained spline artefact) is what lets the outbreak
+#     collapse. A DETERMINISTIC covariate (fixed weekly shape), so it does NOT enter the LHS.
+#   * single index case seeded at the WINDOW OPEN (2025-W24, seed_week = 1), matching the
+#     CHIKV engine (infection present from t = 1) so the MAYV outbreak rises with CHIKV.
 # ============================================================
 setwd("/Users/chloelee/Documents/R/summer_project")
 suppressMessages({library(readxl); library(dplyr); library(tidyr); library(ggplot2)})
@@ -101,16 +101,21 @@ pop_2022_total <- 98622; pop_2025_total <- 106820
 growth_r <- log(pop_2025_total/pop_2022_total)/3
 N        <- age_df$pop_num * exp(growth_r*3)
 
-T_weeks <- 52
+T_weeks <- 52   # 2025-W24 -> 2026-W22, aligned with the CHIKV chain
 
 # ------------------------------------------------------------
-# 3. Seasonal envelope from the FITTED CHIKV beta_t (shared Aedes vector season)
+# 3. HYBRID seasonal envelope: CHIKV beta (rise/peak) + climatological dry-season tail
 # ------------------------------------------------------------
-# caldas_beta_season.rds: mean-1 weekly transmission envelope for 2025-W24 -> 2026-W22,
-# taken from the Caldas Novas CHIKV fit (best_beta_t / mean(best_beta_t)). Using the
-# fitted CHIKV shape rather than a CHIRPS rainfall proxy is the more easily justified
-# choice: it IS an observed transmission signal for the same vector in the same town.
-season_mean1 <- readRDS("caldas_beta_season.rds")
+# caldas_hybrid_season.rds (built by MAYV_build_hybrid_envelope.R): 52-week mean-1 envelope, 2025-W24 ->
+# 2026-W22. It uses the FITTED CHIKV beta_t where it is data-constrained (the rise and
+# peak, 2025-W24 .. 2026-W10) and splices on the CHIRPS climatological DRY SEASON for the
+# tail (2026-W10 .. W22). Rationale: the CHIKV beta's post-outbreak tail is a spline
+# artefact (flat ~0.9, unconstrained -- no CHIKV cases there), which lacks a real dry
+# season; against MAYV's high R0 that flat tail keeps R_eff ~ 1 and the outbreak never
+# resolves inside the window. The rainfall dry season (deep trough, min ~0.04) crashes
+# R_eff after the peak so the outbreak collapses -- for the same reason CHIKV's own
+# outbreak does. So each source is used only where it is informative.
+season_mean1 <- readRDS("caldas_hybrid_season.rds")
 stopifnot(length(season_mean1) == T_weeks, abs(mean(season_mean1) - 1) < 1e-6)
 # R0 INTERPRETATION. r0_is_peak = TRUE: R0 is the SEASONAL-PEAK R_eff (rescale envelope
 # so max = 1; yearly-avg R0 = R0*mean = ~0.58*R0). FALSE: R0 is the ANNUAL-MEAN (envelope
@@ -121,11 +126,20 @@ r0_is_peak <- TRUE
 season <- if (r0_is_peak) season_mean1 / max(season_mean1) else season_mean1
 
 # ------------------------------------------------------------
-# 4. Seed (single introduction at the wet-season onset)
+# 4. Seed (single introduction at the WINDOW OPEN, matching the CHIKV chain)
 # ------------------------------------------------------------
-I0_total  <- 1
+# The CHIKV engine has infection present from t = 1 (2025-W24). To make the MAYV
+# outbreak RISE AT THE SAME TIME as CHIKV (both driven by the shared beta_t envelope),
+# we introduce the index case at the window open too. The old "wet-season onset"
+# rule (first week beta > its mean, ~2025-W43) was a leftover from the CHIRPS-rainfall
+# design; against the flatter CHIKV beta it fired ~11 weeks after the envelope starts
+# rising and, being R0-independent, seeded high-R0 outbreaks ~19 weeks too late so they
+# ran off the end of the 52-week window. Seeding at t=1 fixes both: the beta trough
+# over 2025-W24..W35 keeps early growth slow (so a W40 vaccination is still pre-surge),
+# then the outbreak surges as beta peaks (~W50) and resolves inside the window.
+I0_total  <- if (exists("MAYV_I0"))   MAYV_I0   else 1     # seed size (infectious persons); override for experiments
 E0        <- rep(0, A)
-seed_week <- which(season_mean1 >= 1)[1]   # single introduction at wet-season onset (first above-mean week)
+seed_week <- if (exists("MAYV_SEED")) MAYV_SEED else 1     # seed week index; 1 = window open (2025-W24), 17 = 2025-W40
 
 # ------------------------------------------------------------
 # 5. Priors / samplers
