@@ -195,7 +195,10 @@ NNV_OUT  <- c("symptomatic","hospitalisations","deaths","daly")   # NNV reported
 #    cols: cov, ve, deliv, delay, hosp, cfrH(9), cfrN(9), DW(3), dur(3), LE(9), rec(4)
 # ------------------------------------------------------------
 beta_from_ci <- function(m, lo, hi) { v <- ((hi-lo)/(2*1.96))^2; k <- m*(1-m)/v-1; c(a=m*k, b=(1-m)*k) }
-ve_ab    <- beta_from_ci(0.989, 0.967, 0.998)
+# VE proxy = day-29 seroprotection from the VLA1553/Ixchiq trial, 263/266 seroprotected
+# (Total column). Exact Beta posterior from the raw counts (uniform prior), which
+# reproduces the published 96.7-99.8% Clopper-Pearson CI and carries the true trial n.
+ve_ab    <- c(a = 263 + 1, b = 266 - 263 + 1)   # Beta(264, 4)
 cov_ab   <- beta_from_ci(0.30,  0.20,  0.40)   # SAMPLED coverage of eligible 18-59
 deliv_ab <- beta_from_ci(0.10,  0.09,  0.11)
 
