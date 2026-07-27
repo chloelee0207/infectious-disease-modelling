@@ -21,12 +21,15 @@
 # CHIKV reached Brazil in 2014, so no one has been exposed for longer than ~12 years:
 # everyone aged 12+ carries the same immunity and children carry proportionally less.
 #
-# Draws implying an attack rate above 95%, or a predicted total more than 10% from
-# the observed 8,204, are dropped as epidemiologically infeasible.
+# A draw is dropped only if it is epidemiologically impossible: an attack rate at or
+# above 100% (more infections than susceptibles), or a fitted total more than 10% from
+# the observed 8,204. No tighter cut-off is imposed, since any such threshold would be
+# arbitrary and would discard draws with entirely plausible R0.
 #
 # Exports CHIKV_ca_lhs_ensemble.rds for CHIKV_ca_engine.R.
 # ============================================================
 setwd("/Users/chloelee/Documents/R/summer_project")
+if (!exists("DEFS_ONLY")) DEFS_ONLY <- FALSE   # TRUE = load definitions only (see below)
 suppressMessages({library(readxl); library(dplyr); library(tidyr); library(ggplot2); library(splines)})
 
 # ------------------------------------------------------------
@@ -138,6 +141,14 @@ refit <- function(foi, g, s, r, ps, start) {
 }
 
 # ------------------------------------------------------------
+# Everything below RUNS the propagation. Sourcing this file with DEFS_ONLY = TRUE
+# loads only the model machinery above (SEIR, make_beta_t, neg_log_lik, refit, data,
+# fixed choices) so other scripts -- e.g. CHIKV_ca_owsa.R -- can re-fit at chosen
+# parameter values without paying for the 1000-draw run.
+# ------------------------------------------------------------
+if (!isTRUE(DEFS_ONLY)) {
+
+# ------------------------------------------------------------
 # 5. Samplers: gamma/sigma/rho from model_calibration.xlsx, FOI from its 95% UI
 # ------------------------------------------------------------
 cal <- as.data.frame(read_excel("model_calibration.xlsx", sheet=1))
@@ -205,9 +216,13 @@ for (i in 1:n) {
   loglik[i]<-sum(dnbinom(observed_cases, mu=pmax(d$pred,1e-6), size=1+exp(d$par[df_spline+1]), log=TRUE))
   if (i %% 50 == 0) cat("  ", i, "/", n, "\n")
 }
-# Keep feasible + converged draws (attack < 95% and total within 10% of observed).
-ok <- which(!is.na(totrep) & attack < 95 & abs(totrep-obs_total)/obs_total < 0.10)
-cat(sprintf("Kept %d / %d draws (dropped %d infeasible/non-converged, mostly the high-FOI+low-rho corner the data rule out).\n",
+# Keep converged, epidemiologically POSSIBLE draws. The only hard constraint is that
+# the outbreak cannot infect more susceptibles than exist (attack < 100%); any lower
+# cut-off would be arbitrary and would discard draws with entirely plausible R0. The
+# binding check in practice is that the fit reproduces the observed 8,204 cases to
+# within 10%.
+ok <- which(!is.na(totrep) & attack < 100 & abs(totrep-obs_total)/obs_total < 0.10)
+cat(sprintf("Kept %d / %d draws (dropped %d (attack >= 100%% or predicted total >10%% from observed)).\n",
             length(ok), n, n-length(ok)))
 
 # ------------------------------------------------------------
@@ -297,3 +312,6 @@ stopifnot(length(season_mean1) == T_weeks, abs(mean(season_mean1) - 1) < 1e-6)
 saveRDS(season_mean1, "caldas_beta_season.rds")
 cat("Saved caldas_beta_season.rds (mean-1 beta envelope for the MAYV chain).\n")
 cat(sprintf("Saved CHIKV_ca_lhs_ensemble.rds (%d feasible draws).\n", length(ok)))
+
+
+}  # end !DEFS_ONLY

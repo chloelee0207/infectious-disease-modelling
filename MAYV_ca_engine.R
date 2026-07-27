@@ -181,12 +181,16 @@ veb_ab <- beta_from_ci(0.50, 0.25, 0.75)     # disease-blocking efficacy (hypoth
 del_ab <- beta_from_ci(0.10, 0.09, 0.11)     # weekly delivery speed
 
 lhs_col <- function(n) (sample.int(n) - runif(n)) / n
-# cols: cov, ve, deliv, hosp, cfrH(9), cfrN(9), DW(3), dur(4), LE(9), recovery shares(10)
-K <- 48; U <- sapply(1:K, function(j) lhs_col(N_DRAWS)); col <- 0
+# cols: cov, ve, deliv, delay, hosp, cfrH(9), cfrN(9), DW(3), dur(4), LE(9), recovery shares(10)
+K <- 49; U <- sapply(1:K, function(j) lhs_col(N_DRAWS)); col <- 0
 nextU <- function(w = 1) { idx <- (col+1):(col+w); col <<- col + w; U[, idx, drop = FALSE] }
 cov_d  <- qbeta(nextU(), cov_ab["a"], cov_ab["b"])
 veb_d  <- qbeta(nextU(), veb_ab["a"], veb_ab["b"])
 del_d  <- qbeta(nextU(), del_ab["a"], del_ab["b"])
+# Deployment delay, 1-3 weeks (median 2), as in the CHIKV engine. Ixchiq is deployed
+# ONCE, so the campaign parameters must match CHIKV's: same start, same delay, same
+# time until immunity. Dosing therefore begins at start_pre + delay_d.
+delay_d <- 1 + round(2 * nextU())
 hosp_d <- qbeta(nextU(), hosp_a, hosp_b)
 cfrH_d <- qbeta(nextU(9), matrix(cfr_hosp_a, N_DRAWS, 9, byrow=TRUE), matrix(cfr_hosp_b, N_DRAWS, 9, byrow=TRUE))
 cfrN_d <- qbeta(nextU(9), matrix(cfr_nonh_a, N_DRAWS, 9, byrow=TRUE), matrix(cfr_nonh_b, N_DRAWS, 9, byrow=TRUE))
@@ -235,7 +239,7 @@ for (i in 1:N_DRAWS) {
   Rimm <- rep(immi, A); sus <- N*(1-Rimm); I0i <- I0_total * sus/sum(sus)
   base_beta <- R0i * gi * season
   run <- seirv_vaccinated_MAYV(T_weeks, A, N, Rimm, I0i, base_beta, si, gi, ri,
-           target_age, cov_d[i], del_d[i], start_pre, VE_inf = 0, VE_block = veb_d[i],
+           target_age, cov_d[i], del_d[i], start_pre + delay_d[i], VE_inf = 0, VE_block = veb_d[i],
            immun_delay = immun_delay, prop_symp = psi, E0 = E0, seed_week = seed_week)
   ninf <- run$new_infections; covf <- run$coverage_frac
   doses_deliv[i]    <- sum(run$total_used_age)              # actually administered
@@ -308,14 +312,15 @@ tick_idx <- c(7, 17, 27, 40, 50); xt <- data.frame(i = tick_idx, w = wk_num(tick
 red <- 100 * (base_pd[draw_set,"symptomatic"] - vac_pd[draw_set,"symptomatic"]) / base_pd[draw_set,"symptomatic"]
 rq  <- quantile(red, c(.5,.025,.975), na.rm = TRUE)
 lab <- sprintf("%% symptomatic reduction\nDisease-blocking: %.1f%% (%.1f-%.1f%%)", rq[1], rq[2], rq[3])
-roll_end <- start_pre + max(1, round(1 / mean(del_d))) - 0.5       # ~vaccine rollout window
+roll_beg <- start_pre + median(delay_d)                            # dosing begins after the delay
+roll_end <- roll_beg + max(1, round(1 / mean(del_d))) - 0.5        # ~vaccine rollout window
 pdf_df <- data.frame(week = 1:T_weeks, b_lo=bb[1,], b_md=bb[2,], b_hi=bb[3,],
                      v_lo=bv[1,], v_md=bv[2,], v_hi=bv[3,])
 ttl <- sprintf("MAYV symptomatic cases (2025-W24 - 2026-W22) | R0 '%s'%s", E$R0_scenario,
                if (use_cond) sprintf(", conditional on outbreak (%d/%d)", length(outbreak), N_DRAWS)
                else ", all draws (~no outbreak)")
 p_epi <- ggplot(pdf_df, aes(week)) +
-  annotate("rect", xmin = start_pre-0.5, xmax = roll_end, ymin = -Inf, ymax = Inf, fill = "#cdebc5", alpha = 0.5) +
+  annotate("rect", xmin = roll_beg-0.5, xmax = roll_end, ymin = -Inf, ymax = Inf, fill = "#cdebc5", alpha = 0.5) +
   geom_vline(xintercept = E$year_break, linetype = "dashed", colour = "grey55") +
   geom_ribbon(aes(ymin = b_lo, ymax = b_hi), fill = "grey55",  alpha = 0.25) +
   geom_ribbon(aes(ymin = v_lo, ymax = v_hi), fill = "#4292c6", alpha = 0.22) +
@@ -365,7 +370,7 @@ if (!is.na(R0_FIX)) {
     gi<-E$gamma[i]; si<-E$sigma[i]; ri<-E$rho[i]; psi<-E$prop_symp[i]; immi<-E$immune_frac[i]
     Rimm <- rep(immi, A); sus <- N*(1-Rimm); I0i <- I0_total * sus/sum(sus)
     run <- seirv_vaccinated_MAYV(T_weeks, A, N, Rimm, I0i, R0_FIX * gi * season, si, gi, ri,
-             target_age, cov_d[i], del_d[i], start_pre, VE_inf = 0, VE_block = veb_d[i],
+             target_age, cov_d[i], del_d[i], start_pre + delay_d[i], VE_inf = 0, VE_block = veb_d[i],
              immun_delay = immun_delay, prop_symp = psi, E0 = E0, seed_week = seed_week)
     ninf <- run$new_infections; covf <- run$coverage_frac
     wkb[i, ] <- colSums(psi * ninf); wkv[i, ] <- colSums(psi * ninf * (1 - veb_d[i]*covf))
@@ -410,7 +415,7 @@ if (!is.na(R0_FIX)) {
   labF <- sprintf("%% symptomatic reduction\nDisease-blocking: %.1f%% (%.1f-%.1f%%)", rqF[1], rqF[2], rqF[3])
   dfF <- data.frame(week = 1:T_weeks, b_lo=bF[1,], b_md=bF[2,], b_hi=bF[3,], v_lo=vF[1,], v_md=vF[2,], v_hi=vF[3,])
   p_fix <- ggplot(dfF, aes(week)) +
-    annotate("rect", xmin = start_pre-0.5, xmax = roll_end, ymin = -Inf, ymax = Inf, fill = "#cdebc5", alpha = 0.5) +
+    annotate("rect", xmin = roll_beg-0.5, xmax = roll_end, ymin = -Inf, ymax = Inf, fill = "#cdebc5", alpha = 0.5) +
     geom_vline(xintercept = E$year_break, linetype = "dashed", colour = "grey55") +
     geom_ribbon(aes(ymin = b_lo, ymax = b_hi), fill = "grey55",  alpha = 0.25) +
     geom_ribbon(aes(ymin = v_lo, ymax = v_hi), fill = "#4292c6", alpha = 0.22) +
@@ -443,6 +448,7 @@ saveRDS(list(
   N_DRAWS = N_DRAWS, PHASE_MODE = PHASE_MODE, R0_scenario = E$R0_scenario,
   target_pop_elig = target_pop_elig, cov_d = cov_d, veb_d = veb_d, EVAL_WIN = EVAL_WIN,
   wk_base = wk_base, wk_vacc = wk_vacc, T_weeks = T_weeks,    # weekly symptomatic, for figures
-  start_pre = start_pre, immun_delay = immun_delay, deliv_median = median(del_d)),
+  start_pre = start_pre, immun_delay = immun_delay, deliv_median = median(del_d),
+  delay_d = delay_d, dose_start = start_pre + median(delay_d)),
   "MAYV_ca_engine_results.rds")
 cat("\nSaved MAYV_ca_engine_results.rds (per-draw + conditional aggregates; severity-phase counts included).\n")

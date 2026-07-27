@@ -402,13 +402,16 @@ if (!file.exists("MAYV_ca_engine_results.rds")) {
                      "Disease blocking only: ",
                      pct_str(mb, M$per_draw[[M$vac_name]][mv_rows, "symptomatic"]))))
 
-    mv_start <- if (!is.null(M$start_pre))    M$start_pre        else 1
-    mv_delay <- if (!is.null(M$immun_delay))  M$immun_delay      else 2
-    mv_len   <- if (!is.null(M$deliv_median)) round(1/M$deliv_median) else 10
+    # Rollout band = DOSING START (campaign week + median deployment delay) to the end
+    # of the ~1/delivery-rate week rollout. Ixchiq is deployed once, so both panels use
+    # the same definition and the two bands coincide.
+    ch_dose <- timings[["pre-outbreak"]] + 2                                # median delay 2 wk
+    mv_dose <- if (!is.null(M$dose_start))   M$dose_start            else ch_dose
+    mv_len  <- if (!is.null(M$deliv_median)) round(1/M$deliv_median) else 10
     vac_win <- data.frame(
       panel = factor(panel_labs, levels = panel_labs),
-      xmin  = c(timings[["pre-outbreak"]] + 2,      mv_start + mv_delay),
-      xmax  = c(timings[["pre-outbreak"]] + 2 + 10, mv_start + mv_delay + mv_len))
+      xmin  = c(ch_dose,      mv_dose),
+      xmax  = c(ch_dose + 10, mv_dose + mv_len))
 
 
     p_both <- ggplot(both, aes(week, med, colour = scenario, fill = scenario)) +
