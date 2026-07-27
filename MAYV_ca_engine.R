@@ -32,6 +32,7 @@ PHASE_MODE             <- "hosp_severity"   # YLD severity axis (matches CHIKV e
 OUTBREAK_ATTACK_THRESH <- 1.0               # % of susceptibles infected -> "took off"
 R0_FIX                 <- 3.0               # fixed peak R0 for the representative-outbreak plot (6c); NA to skip
 MAYV_ZERO_DEATHS       <- TRUE              # no confirmed MAYV-attributable death -> CFR = 0 (deaths & YLL = 0)
+if (!exists("DEFS_ONLY")) DEFS_ONLY <- FALSE   # TRUE = definitions only (see below)
 set.seed(2031)
 
 # ------------------------------------------------------------
@@ -170,6 +171,13 @@ outcome_one <- function(symp_age, infections, doses, rho, hosp_j, cfr_j, le_band
     yld_chronic = unname(yld_chr), yld = yld_tot,
     yll = yll, daly = yld_tot + yll, doses = doses)
 }
+
+# ------------------------------------------------------------
+# Everything below RUNS the propagation. Sourcing this file with DEFS_ONLY = TRUE
+# loads only the machinery above (seirv_vaccinated_MAYV, outcome extractor, severity
+# and DALY parameters, eligibility) so MAYV_ca_owsa.R can re-use it deterministically.
+# ------------------------------------------------------------
+if (!isTRUE(DEFS_ONLY)) {
 
 # ------------------------------------------------------------
 # 3. ONE Latin-hypercube design for the layered (vaccine + severity + DALY) draws.
@@ -452,3 +460,6 @@ saveRDS(list(
   delay_d = delay_d, dose_start = start_pre + median(delay_d)),
   "MAYV_ca_engine_results.rds")
 cat("\nSaved MAYV_ca_engine_results.rds (per-draw + conditional aggregates; severity-phase counts included).\n")
+
+
+}  # end !DEFS_ONLY

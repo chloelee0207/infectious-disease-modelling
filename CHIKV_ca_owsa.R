@@ -47,13 +47,13 @@ BOUNDS <- list(
   delay = c(1, 3),
   immun = c(1, 3))
 
-PAR_LAB <- c(foi   = "Force of infection (prior immunity)",
+PAR_LAB <- c(foi   = "FOI",
              rho   = "Reporting rate",
              ve    = "Vaccine efficacy",
              cov   = "Vaccine coverage",
              deliv = "Weekly delivery speed",
              delay = "Delay in deployment",
-             immun = "Time until immunity acquisition")
+             immun = "Time to immunity")
 REFIT_PARS <- c("foi", "rho")     # these change the epidemic fit
 
 GAMMA <- 0.54; SIGMA <- 1/0.60; PSYMP <- prop_symp   # held fixed (see header of the workbook)
@@ -207,7 +207,7 @@ tornado <- function(outcome, xlab, file) {
                          strip.text = element_text(face = "bold"))
   ggsave(file, p, width = 11, height = 4.6, dpi = 130); p
 }
-p_symp <- tornado("symptomatic", "Symptomatic cases averted (vs no vaccine)", "CHIKV_ca_owsa_symptomatic.png")
+p_symp <- tornado("symptomatic", "Symptomatic cases averted", "CHIKV_ca_owsa_symptomatic.png")
 p_daly <- tornado("daly",        "DALYs averted",                              "CHIKV_ca_owsa_daly.png")
 p_cost <- tornado("cost",        "Direct medical cost averted (2019 BRL)",     "CHIKV_ca_owsa_cost.png")
 print(p_symp)
