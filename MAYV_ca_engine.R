@@ -30,7 +30,6 @@ source("ca_common.R")   # fmtq, load_burden_params, load_daly_params
 # ---- knobs --------------------------------------------------
 PHASE_MODE             <- "hosp_severity"   # YLD severity axis (matches CHIKV engine)
 OUTBREAK_ATTACK_THRESH <- 1.0               # % of susceptibles infected -> "took off"
-R0_FIX                 <- 3.0               # fixed peak R0 for the representative-outbreak plot (6c); NA to skip
 MAYV_ZERO_DEATHS       <- TRUE              # no confirmed MAYV-attributable death -> CFR = 0 (deaths & YLL = 0)
 if (!exists("DEFS_ONLY")) DEFS_ONLY <- FALSE   # TRUE = definitions only (see below)
 set.seed(2031)
@@ -362,84 +361,6 @@ base_curve_plot(wk_base, draw_set, "Predicted symptomatic cases (no vaccine)",
           if (use_cond) sprintf(", conditional on outbreak (%d/%d)", length(outbreak), N_DRAWS) else ", all draws"),
   sprintf("MAYV_ca_baseline_%s.png", E$R0_scenario))
 
-# ------------------------------------------------------------
-# 6c. FIXED-R0 representative outbreak. Pin peak R0 = R0_FIX and REUSE every other draw
-#     (immunity, gamma, sigma, rho, prop_symp, coverage, VE) -- no new LHS. The band is
-#     then PARAMETER uncertainty only (R0 removed), so it reads like the CHIKV plot:
-#     one clean "substantial urban outbreak" + the vaccine's effect on it, rather than
-#     the R0-dominated fan of the propagated/conditional plot above.
-# ------------------------------------------------------------
-fixed_base_pd <- fixed_vac_pd <- NULL; attack_fixed <- NULL
-if (!is.na(R0_FIX)) {
-  wkb <- wkv <- wk_inf_f <- wk_rep_f <- matrix(NA_real_, N_DRAWS, T_weeks)
-  fixed_base_pd <- fixed_vac_pd <- matrix(NA_real_, N_DRAWS, length(OUTCOMES), dimnames = list(NULL, OUTCOMES))
-  attack_fixed  <- numeric(N_DRAWS)
-  for (i in 1:N_DRAWS) {
-    gi<-E$gamma[i]; si<-E$sigma[i]; ri<-E$rho[i]; psi<-E$prop_symp[i]; immi<-E$immune_frac[i]
-    Rimm <- rep(immi, A); sus <- N*(1-Rimm); I0i <- I0_total * sus/sum(sus)
-    run <- seirv_vaccinated_MAYV(T_weeks, A, N, Rimm, I0i, R0_FIX * gi * season, si, gi, ri,
-             target_age, cov_d[i], del_d[i], start_pre + delay_d[i], VE_inf = 0, VE_block = veb_d[i],
-             immun_delay = immun_delay, prop_symp = psi, E0 = E0, seed_week = seed_week)
-    ninf <- run$new_infections; covf <- run$coverage_frac
-    wkb[i, ] <- colSums(psi * ninf); wkv[i, ] <- colSums(psi * ninf * (1 - veb_d[i]*covf))
-    wk_inf_f[i, ] <- colSums(ninf)          # weekly TRUE infections (no vaccine)
-    wk_rep_f[i, ] <- ri * wkb[i, ]          # weekly REPORTED = rho * symptomatic (no vaccine)
-    # full burden outcomes at fixed R0 (every fixed-R0 draw is an outbreak, so no conditioning)
-    symp_b <- rowSums((psi*ninf)[, EVAL_WIN, drop=FALSE])
-    symp_v <- rowSums((psi*ninf*(1 - veb_d[i]*covf))[, EVAL_WIN, drop=FALSE])
-    inf_t  <- sum(ninf[, EVAL_WIN, drop=FALSE]); attack_fixed[i] <- 100*inf_t/sum(sus)
-    cfr_j  <- (hosp_d[i]*cfrH_d[i,] + (1-hosp_d[i])*cfrN_d[i,])[age_to_band]
-    ad <- list(le_d[i,], dwMM_d[i], dwSV_d[i], dwCH_d[i], duMM_d[i], duSV_d[i], duSB_d[i],
-               duCH_d[i], acy_d[i], aco_d[i], sby_d[i], sbo_d[i], chy_d[i], cho_d[i])
-    fixed_base_pd[i,] <- do.call(outcome_one, c(list(symp_b, inf_t, 0, ri, hosp_d[i], cfr_j), ad))
-    fixed_vac_pd[i,]  <- do.call(outcome_one, c(list(symp_v, inf_t, target_pop_elig*cov_d[i], ri, hosp_d[i], cfr_j), ad))
-  }
-  # BEFORE-VACCINE plots at fixed R0: (i) baseline symptomatic, (ii) true infections vs reported
-  base_curve_plot(wkb, 1:N_DRAWS, "Predicted symptomatic cases (no vaccine)",
-    sprintf("MAYV symptomatic, NO vaccine | representative outbreak, fixed R0 = %.1f", R0_FIX),
-    sprintf("MAYV_ca_baseline_fixedR0_%.1f.png", R0_FIX))
-  ibq <- apply(wk_inf_f, 2, quantile, c(.025,.5,.975)); rbq <- apply(wk_rep_f, 2, quantile, c(.025,.5,.975))
-  dfir <- data.frame(week = 1:T_weeks, i_lo=ibq[1,], i_md=ibq[2,], i_hi=ibq[3,],
-                     r_lo=rbq[1,], r_md=rbq[2,], r_hi=rbq[3,])
-  p_ir <- ggplot(dfir, aes(week)) +
-    geom_vline(xintercept = E$year_break, linetype = "dashed", colour = "grey55") +
-    geom_ribbon(aes(ymin=i_lo, ymax=i_hi, fill="True infections"), alpha=0.25) +
-    geom_ribbon(aes(ymin=r_lo, ymax=r_hi, fill="Reported"), alpha=0.30) +
-    geom_line(aes(y=i_md, colour="True infections"), linewidth=1) +
-    geom_line(aes(y=r_md, colour="Reported"), linewidth=1) +
-    scale_colour_manual(name=NULL, values=c("True infections"="#3182bd", "Reported"="#d6604d")) +
-    scale_fill_manual(name=NULL, values=c("True infections"="#a8d1e7", "Reported"="#f4a582")) +
-    scale_x_continuous(breaks=xt$i, labels=xt$w) +
-    labs(x="Week", y="Weekly cases (no vaccine)",
-         title=sprintf("MAYV true infections vs reported, NO vaccine | fixed R0 = %.1f", R0_FIX)) +
-    theme_bw(12) + theme(plot.title=element_text(face="bold", hjust=0.5, size=10.5),
-                         legend.position="inside", legend.position.inside=c(0.98,0.98),
-                         legend.justification=c(1,1), panel.grid.minor=element_blank())
-  ggsave(sprintf("MAYV_ca_baseline_true_vs_reported_fixedR0_%.1f.png", R0_FIX), p_ir, width=8, height=4.5, dpi=120)
-  cat(sprintf("Saved baseline true-vs-reported plot: MAYV_ca_baseline_true_vs_reported_fixedR0_%.1f.png\n", R0_FIX))
-  bqf <- function(M) apply(M, 2, quantile, c(.025,.5,.975), na.rm = TRUE)
-  bF <- bqf(wkb); vF <- bqf(wkv)
-  redF <- 100 * (rowSums(wkb) - rowSums(wkv)) / rowSums(wkb); rqF <- quantile(redF, c(.5,.025,.975))
-  labF <- sprintf("%% symptomatic reduction\nDisease-blocking: %.1f%% (%.1f-%.1f%%)", rqF[1], rqF[2], rqF[3])
-  dfF <- data.frame(week = 1:T_weeks, b_lo=bF[1,], b_md=bF[2,], b_hi=bF[3,], v_lo=vF[1,], v_md=vF[2,], v_hi=vF[3,])
-  p_fix <- ggplot(dfF, aes(week)) +
-    annotate("rect", xmin = roll_beg-0.5, xmax = roll_end, ymin = -Inf, ymax = Inf, fill = "#cdebc5", alpha = 0.5) +
-    geom_vline(xintercept = E$year_break, linetype = "dashed", colour = "grey55") +
-    geom_ribbon(aes(ymin = b_lo, ymax = b_hi), fill = "grey55",  alpha = 0.25) +
-    geom_ribbon(aes(ymin = v_lo, ymax = v_hi), fill = "#4292c6", alpha = 0.22) +
-    geom_line(aes(y = b_md), colour = "grey30",  linewidth = 1) +
-    geom_line(aes(y = v_md), colour = "#2171b5", linewidth = 1) +
-    annotate("text", x = T_weeks, y = Inf, label = labF, hjust = 1, vjust = 1.2, size = 3.1) +
-    scale_x_continuous(breaks = xt$i, labels = xt$w) +
-    labs(x = "Week", y = "Predicted symptomatic cases",
-         title = sprintf("MAYV symptomatic cases (2025-W24 - 2026-W22) | representative outbreak, fixed R0 = %.1f", R0_FIX)) +
-    theme_bw(12) + theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 10.5),
-                         panel.grid.minor = element_blank())
-  fix_fn <- sprintf("MAYV_ca_symptomatic_fixedR0_%.1f.png", R0_FIX)
-  ggsave(fix_fn, p_fix, width = 8, height = 4.5, dpi = 120)
-  cat(sprintf("Saved fixed-R0 plot: %s (median baseline symptomatic total = %.0f; band = parameter uncertainty only)\n",
-              fix_fn, median(rowSums(wkb))))
-}
 
 # ------------------------------------------------------------
 # 7. Save per-draw + aggregated + the outbreak index (severity-phase counts included)
@@ -448,8 +369,7 @@ saveRDS(list(
   per_draw = per_draw, averted = averted, nnv = nnv,
   attack_base = attack_base, outbreak = outbreak, p_outbreak = p_outbreak,
   OUTBREAK_ATTACK_THRESH = OUTBREAK_ATTACK_THRESH,
-  fixed_base_pd = fixed_base_pd, fixed_vac_pd = fixed_vac_pd, attack_fixed = attack_fixed,
-  R0_FIX = R0_FIX, rho_draw = E$rho,
+  rho_draw = E$rho,
   doses_deliv = doses_deliv, doses_ontarget = doses_ontarget,
   agg_burden_cond = agg_burden_cond, agg_averted_cond = agg_averted_cond, agg_nnv_cond = agg_nnv_cond,
   scen_names = scen_names, vac_name = vac_name, OUTCOMES = OUTCOMES, NNV_OUT = NNV_OUT,

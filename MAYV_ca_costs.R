@@ -233,37 +233,9 @@ sh_audit <- rbind(sh_audit, data.frame(step = 10, quantity = "TOTAL direct medic
   formula = "steps 6+7+8+9", value = round(B_hosp*mpc_h + B_nonh*mpc_a +
     B_nonh*B_psub*mpc_s + B_nonh*B_pchr*mpc_c, 2), stringsAsFactors = FALSE))
 
-# ------------------------------------------------------------
-# 7. Fixed-R0 representative outbreak (R0_FIX): costs without the take-off lottery
-# ------------------------------------------------------------
-fx_base <- cost_of(G$fixed_base_pd)$cost
-fx_vac  <- cost_of(G$fixed_vac_pd)$cost
-fx_av   <- fx_base - fx_vac
-sh_fixed <- rbind(
-  data.frame(scenario = sprintf("No vaccine (fixed R0 = %.1f)", G$R0_FIX),
-             hosp_inpatient = fmt(q3(fx_base[, "hosp_inpatient"])),
-             out_acute      = fmt(q3(fx_base[, "out_acute"])),
-             out_subacute   = fmt(q3(fx_base[, "out_subacute"])),
-             out_chronic    = fmt(q3(fx_base[, "out_chronic"])),
-             TOTAL_direct_medical = fmt(q3(fx_base[, "total_direct_medical"])),
-             stringsAsFactors = FALSE),
-  data.frame(scenario = sprintf("Disease-blocking vaccine (fixed R0 = %.1f)", G$R0_FIX),
-             hosp_inpatient = fmt(q3(fx_vac[, "hosp_inpatient"])),
-             out_acute      = fmt(q3(fx_vac[, "out_acute"])),
-             out_subacute   = fmt(q3(fx_vac[, "out_subacute"])),
-             out_chronic    = fmt(q3(fx_vac[, "out_chronic"])),
-             TOTAL_direct_medical = fmt(q3(fx_vac[, "total_direct_medical"])),
-             stringsAsFactors = FALSE),
-  data.frame(scenario = "COST AVERTED (fixed R0)",
-             hosp_inpatient = fmt(q3(fx_av[, "hosp_inpatient"])),
-             out_acute      = fmt(q3(fx_av[, "out_acute"])),
-             out_subacute   = fmt(q3(fx_av[, "out_subacute"])),
-             out_chronic    = fmt(q3(fx_av[, "out_chronic"])),
-             TOTAL_direct_medical = fmt(q3(fx_av[, "total_direct_medical"])),
-             stringsAsFactors = FALSE))
 
 # ------------------------------------------------------------
-# 8. Validation: the BORROWED formulas reproduce Goncalves' published Rio 2019 totals
+# 7. Validation: the BORROWED formulas reproduce Goncalves' published Rio 2019 totals
 # ------------------------------------------------------------
 N0 <- 38830; N1g <- 0.537*N0; N2g <- 0.52*N0
 g_ac <- 2*23.17*N0 + 0.47*N0*(4.33+1.13) + 0.53*N0*((4.33+1.13)/2 + (4.24+20.95+89.33)/3)
@@ -286,7 +258,7 @@ sh_notes <- data.frame(item = c(
  "Epidemic source", "Evaluation window", "Conditioning", "Draws",
  "Denominator (outpatient)", "Denominator (inpatient)", "Phase counts",
  "Deaths", "Hospitalisation cost", "Unused input",
- "Why medians do not add up", "Averted costs", "Fixed-R0 sheet", "Scope"),
+ "Why medians do not add up", "Averted costs", "Scope"),
  detail = c(
  "Mayaro virus (MAYV), Caldas Novas, hypothetical outbreak.",
  "2019 Brazilian reais (BRL). No inflation or PPP adjustment applied.",
@@ -305,13 +277,12 @@ sh_notes <- data.frame(item = c(
  "'Average hospitalisation LOS, days' is NOT used -- the stay cost is already per admission. Retained in costs.xlsx for reference only.",
  "Every figure is the median (and 2.5-97.5th percentile) of the per-draw distribution. The median of a sum is not the sum of medians, so component medians will not add exactly to the TOTAL median. The per-draw totals ARE internally consistent.",
  "Computed per draw as (baseline - scenario) before summarising, so baseline and scenario stay paired and the UI reflects the correlated uncertainty.",
- sprintf("costs_fixedR0 removes the take-off lottery: every draw is a genuine outbreak at R0 = %.1f, so it answers 'what does an outbreak of this size cost?' rather than 'what does the average season cost?'.", G$R0_FIX),
  "DIRECT MEDICAL costs only. Excludes indirect/productivity losses, which were 97% of total costs in Goncalves."),
  stringsAsFactors = FALSE)
 
 write_xlsx(list(notes = sh_notes, unit_costs = sh_units, cost_per_case = sh_percase,
                 case_counts = sh_counts, costs_by_scenario = sh_costs,
-                cost_averted = sh_averted, costs_fixedR0 = sh_fixed,
+                cost_averted = sh_averted,
                 audit_point_estimate = sh_audit, goncalves_check = sh_check),
            "MAYV_ca_costs.xlsx")
 saveRDS(list(cost_pd = cost_pd, count_pd = count_pd, outbreak = ok,

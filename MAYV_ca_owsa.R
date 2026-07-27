@@ -236,13 +236,13 @@ if (!file.exists("CHIKV_ca_owsa.rds")) {
       scale_x_continuous(labels = scales::comma) +
       labs(title = ttl, x = "Symptomatic cases averted", y = NULL) +
       theme_bw(11) +
-      theme(legend.position = if (legend) "bottom" else "none",
-            plot.title = element_text(face = "bold", size = 11),
-            strip.text = element_text(face = "bold", size = 9),
+      theme(text = element_text(size = 14), legend.position = if (legend) "bottom" else "none",
+            plot.title = element_text(face = "bold", size = 12),
+            strip.text = element_text(face = "bold", size = 10),
             panel.grid.minor = element_blank())
   }
   pA <- tor(ca, blA, "A   Chikungunya", legend = FALSE)
-  pB <- tor(mb, blB, "B   Mayaro (conditional on outbreak)", legend = TRUE)
+  pB <- tor(mb, blB, "B   Mayaro", legend = TRUE)
 
   # A spans both columns; B occupies the left column only, aligned beneath it.
   design <- "AA\nB#"
