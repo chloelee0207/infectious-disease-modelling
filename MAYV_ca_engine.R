@@ -441,6 +441,8 @@ saveRDS(list(
   agg_burden_cond = agg_burden_cond, agg_averted_cond = agg_averted_cond, agg_nnv_cond = agg_nnv_cond,
   scen_names = scen_names, vac_name = vac_name, OUTCOMES = OUTCOMES, NNV_OUT = NNV_OUT,
   N_DRAWS = N_DRAWS, PHASE_MODE = PHASE_MODE, R0_scenario = E$R0_scenario,
-  target_pop_elig = target_pop_elig, cov_d = cov_d, veb_d = veb_d, EVAL_WIN = EVAL_WIN),
+  target_pop_elig = target_pop_elig, cov_d = cov_d, veb_d = veb_d, EVAL_WIN = EVAL_WIN,
+  wk_base = wk_base, wk_vacc = wk_vacc, T_weeks = T_weeks,    # weekly symptomatic, for figures
+  start_pre = start_pre, immun_delay = immun_delay, deliv_median = median(del_d)),
   "MAYV_ca_engine_results.rds")
 cat("\nSaved MAYV_ca_engine_results.rds (per-draw + conditional aggregates; severity-phase counts included).\n")

@@ -349,6 +349,100 @@ p_nnv <- ggplot(nnv_plt, aes(arm, med, fill = arm)) +
         legend.position = "bottom", panel.grid.minor = element_blank())
 print(p_nnv); ggsave("CHIKV_ca_nnv.png", p_nnv, width = 11, height = 4.6, dpi = 120)
 
+# ------------------------------------------------------------
+# 8. Side-by-side CHIKV | MAYV epidemic curves (pre-outbreak rollout).
+# CHIKV has both vaccine arms; MAYV is modelled as disease-blocking only, so its panel
+# carries two curves. MAYV is shown conditional on the outbreak taking off. Skipped if
+# the MAYV engine has not been run.
+# ------------------------------------------------------------
+if (!file.exists("MAYV_ca_engine_results.rds")) {
+  cat("Skipped CHIKV_MAYV_epicurves.png (MAYV_ca_engine_results.rds not found).\n")
+} else {
+  M <- readRDS("MAYV_ca_engine_results.rds")
+  if (is.null(M$wk_base)) {
+    cat("Skipped CHIKV_MAYV_epicurves.png (re-run MAYV_ca_engine.R to store weekly curves).\n")
+  } else {
+
+    qband <- function(mat, rows, lab, panel, measure) {
+      q <- apply(mat[rows, , drop = FALSE], 2, quantile, c(.025,.5,.975), na.rm = TRUE)
+      data.frame(week = seq_len(ncol(mat)), lo = q[1,], med = q[2,], hi = q[3,],
+                 scenario = lab, panel = panel, measure = measure)
+    }
+    pair <- function(mat, rho, rows, lab, panel)
+      rbind(qband(mat, rows, lab, panel, "True symptomatic"),
+            qband(mat * rho, rows, lab, panel, "Reported"))
+    ch_rows <- seq_len(nrow(wk_symp[["No vaccine (baseline)"]]))
+    ch <- rbind(
+      pair(wk_symp[["No vaccine (baseline)"]], rho_i, ch_rows, "No vaccination", "CHIKV"),
+      pair(wk_symp[["pre-outbreak | Disease-blocking"]], rho_i, ch_rows, "Disease-blocking", "CHIKV"),
+      pair(wk_symp[["pre-outbreak | Disease + infection blocking"]], rho_i, ch_rows,
+           "Disease + infection blocking", "CHIKV"))
+    mv_rows <- if (length(M$outbreak) >= 20) M$outbreak else seq_len(M$N_DRAWS)
+    mv <- rbind(pair(M$wk_base, M$rho_draw, mv_rows, "No vaccination", "MAYV"),
+                pair(M$wk_vacc, M$rho_draw, mv_rows, "Disease-blocking", "MAYV"))
+    both <- rbind(ch, mv)
+    both$measure <- factor(both$measure, levels = c("True symptomatic","Reported"))
+    both$scenario <- factor(both$scenario, levels = names(scen_cols))
+    panel_labs <- c("Chikungunya",
+                    sprintf("Mayaro"))
+    both$panel <- factor(both$panel, levels = c("CHIKV","MAYV"), labels = panel_labs)
+
+    pct_str <- function(b, v) { p <- 100*(b - v)/b; q <- quantile(p, c(.5,.025,.975), na.rm = TRUE)
+      sprintf("%.1f %% (95%% UI %.1f-%.1f %%)", q[1], q[2], q[3]) }
+    cb <- bmat[["No vaccine (baseline)"]][,"symptomatic"]
+    mb <- M$per_draw[["No vaccine (baseline)"]][mv_rows, "symptomatic"]
+    ann <- data.frame(
+      panel = factor(panel_labs, levels = panel_labs),
+      lab = c(paste0("% Reduction in predicted symptomatic cases\n",
+                     "Disease blocking only: ",
+                     pct_str(cb, bmat[["pre-outbreak | Disease-blocking"]][,"symptomatic"]), "\n",
+                     "Disease & infection blocking: ",
+                     pct_str(cb, bmat[["pre-outbreak | Disease + infection blocking"]][,"symptomatic"])),
+              paste0("% Reduction in predicted symptomatic cases\n",
+                     "Disease blocking only: ",
+                     pct_str(mb, M$per_draw[[M$vac_name]][mv_rows, "symptomatic"]))))
+
+    mv_start <- if (!is.null(M$start_pre))    M$start_pre        else 1
+    mv_delay <- if (!is.null(M$immun_delay))  M$immun_delay      else 2
+    mv_len   <- if (!is.null(M$deliv_median)) round(1/M$deliv_median) else 10
+    vac_win <- data.frame(
+      panel = factor(panel_labs, levels = panel_labs),
+      xmin  = c(timings[["pre-outbreak"]] + 2,      mv_start + mv_delay),
+      xmax  = c(timings[["pre-outbreak"]] + 2 + 10, mv_start + mv_delay + mv_len))
+
+
+    p_both <- ggplot(both, aes(week, med, colour = scenario, fill = scenario)) +
+      geom_rect(data = vac_win, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+                inherit.aes = FALSE, fill = "#3a7d3a", alpha = .12) +
+      geom_area(data = subset(both, measure == "True symptomatic"),
+                position = "identity", alpha = .25, colour = NA) +
+      geom_line(data = subset(both, measure == "Reported"),
+                aes(linetype = measure), linewidth = .8) +
+      geom_text(data = ann, aes(x = -Inf, y = Inf, label = lab), inherit.aes = FALSE,
+                hjust = -0.02, vjust = 1.15, size = 4, lineheight = 1.05) +
+      expand_limits(y = 0) +
+      facet_wrap(~ panel, nrow = 1, scales = "free_y") +
+      scale_colour_manual(values = scen_cols, aesthetics = c("colour","fill")) +
+      scale_linetype_manual(values = c("Reported" = "dotted"),
+                            labels = c("Reported" = "Reported symptomatic cases"),
+                            name = NULL) +
+      guides(fill = guide_legend(order = 1, override.aes = list(linetype = 0, alpha = .55)),
+             colour = guide_legend(order = 1, override.aes = list(linetype = 0)),
+             linetype = guide_legend(order = 2, override.aes = list(colour = "grey25"))) +
+
+      scale_x_continuous(breaks = c(1, seq(10, T_sim, by = 10))) +
+      scale_y_continuous(labels = scales::comma) +
+      labs(x = "Week (index, 1 = 2025-W24)", y = "Predicted symptomatic cases",
+           colour = NULL, fill = NULL) +
+           # title = "Caldas Novas: predicted symptomatic cases, pre-outbreak rollout at 30% coverage",
+           # caption = "Median and 95% UI. 2025-W24 to 2026-W22.") +
+      theme_bw(11) + theme(text = element_text(size = 12), legend.position = "bottom", plot.title = element_text(face = "bold"),
+                           strip.text = element_text(face = "bold", size = 10), panel.grid.minor = element_blank())
+    print(p_both); ggsave("CHIKV_MAYV_epicurves.png", p_both, width = 11, height = 4.8, dpi = 130)
+    cat("Saved CHIKV_MAYV_epicurves.png (CHIKV | MAYV side by side).\n")
+  }
+}
+
 cat(sprintf("Saved figures: epicurve_{%s}, averted_mc, fit_observed, daly_composition, daly_averted, nnv\n",
             paste(gsub("[^a-z0-9]+","_",tolower(names(timings))), collapse=", ")))
 cat("Wrote CHIKV_ca_vacc_outputs.xlsx, CHIKV_ca_daly_outputs.xlsx, CHIKV_ca_nnv_outputs.xlsx,",
