@@ -352,13 +352,21 @@ print(p_nnv); ggsave("CHIKV_ca_nnv.png", p_nnv, width = 11, height = 4.6, dpi = 
 # ------------------------------------------------------------
 # 8. Side-by-side CHIKV | MAYV epidemic curves (pre-outbreak rollout).
 # CHIKV has both vaccine arms; MAYV is modelled as disease-blocking only, so its panel
-# carries two curves. MAYV is shown conditional on the outbreak taking off. Skipped if
-# the MAYV engine has not been run.
+# carries two curves. MAYV uses a FIXED peak R0 per scenario (low = 1.20 Caicedo
+# outside-Amazon; high = 2.50 sustained urban Aedes transmission), so every MAYV draw is
+# the same transmission regime and ALL draws are plotted -- no take-off conditioning.
+# The MAYV panel is labelled with its R0 so the figure is unambiguous about which
+# scenario is shown. Skipped if the MAYV engine has not been run.
 # ------------------------------------------------------------
-if (!file.exists("MAYV_ca_engine_results.rds")) {
-  cat("Skipped CHIKV_MAYV_epicurves.png (MAYV_ca_engine_results.rds not found).\n")
+# Which MAYV scenario to put in the right-hand panel. Reads the scenario-TAGGED results
+# file so the figure never depends on which scenario happened to run last.
+if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" (R0 2.50) | "low" (R0 1.20)
+mayv_epi_file <- sprintf("MAYV_ca_engine_results_%s.rds", MAYV_EPI_SCENARIO)
+if (!file.exists(mayv_epi_file)) {
+  cat(sprintf("Skipped CHIKV_MAYV_epicurves.png (%s not found -- run MAYV_ca_lhs.R + MAYV_ca_engine.R with R0_SCENARIO <- '%s').\n",
+              mayv_epi_file, MAYV_EPI_SCENARIO))
 } else {
-  M <- readRDS("MAYV_ca_engine_results.rds")
+  M <- readRDS(mayv_epi_file)
   if (is.null(M$wk_base)) {
     cat("Skipped CHIKV_MAYV_epicurves.png (re-run MAYV_ca_engine.R to store weekly curves).\n")
   } else {
@@ -377,14 +385,14 @@ if (!file.exists("MAYV_ca_engine_results.rds")) {
       pair(wk_symp[["pre-outbreak | Disease-blocking"]], rho_i, ch_rows, "Disease-blocking", "CHIKV"),
       pair(wk_symp[["pre-outbreak | Disease + infection blocking"]], rho_i, ch_rows,
            "Disease + infection blocking", "CHIKV"))
-    mv_rows <- if (length(M$outbreak) >= 20) M$outbreak else seq_len(M$N_DRAWS)
+    mv_rows <- seq_len(M$N_DRAWS)          # ALL draws: R0 is fixed, so no conditioning
     mv <- rbind(pair(M$wk_base, M$rho_draw, mv_rows, "No vaccination", "MAYV"),
                 pair(M$wk_vacc, M$rho_draw, mv_rows, "Disease-blocking", "MAYV"))
     both <- rbind(ch, mv)
     both$measure <- factor(both$measure, levels = c("True symptomatic","Reported"))
     both$scenario <- factor(both$scenario, levels = names(scen_cols))
     panel_labs <- c("Chikungunya",
-                    sprintf("Mayaro"))
+                    sprintf("Mayaro (fixed R0 = %.2f)", M$R0_fixed))
     both$panel <- factor(both$panel, levels = c("CHIKV","MAYV"), labels = panel_labs)
 
     pct_str <- function(b, v) { p <- 100*(b - v)/b; q <- quantile(p, c(.5,.025,.975), na.rm = TRUE)
@@ -442,7 +450,8 @@ if (!file.exists("MAYV_ca_engine_results.rds")) {
       theme_bw(11) + theme(text = element_text(size = 12), legend.position = "bottom", plot.title = element_text(face = "bold"),
                            strip.text = element_text(face = "bold", size = 10), panel.grid.minor = element_blank())
     print(p_both); ggsave("CHIKV_MAYV_epicurves.png", p_both, width = 11, height = 4.8, dpi = 130)
-    cat("Saved CHIKV_MAYV_epicurves.png (CHIKV | MAYV side by side).\n")
+    cat(sprintf("Saved CHIKV_MAYV_epicurves.png (CHIKV | MAYV side by side; MAYV = '%s' scenario, fixed R0 = %.2f, all %d draws).\n",
+                MAYV_EPI_SCENARIO, M$R0_fixed, M$N_DRAWS))
   }
 }
 

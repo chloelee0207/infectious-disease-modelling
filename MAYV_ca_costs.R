@@ -28,9 +28,9 @@
 # disjoint exit funnel. A patient who becomes chronic also consumed acute and
 # sub-acute care, so they pay at every phase they passed through.
 #
-# CONDITIONING: the MAYV epidemic only takes off in a minority of draws, so (exactly
-# as the MAYV engine reports burden) every summary here is CONDITIONAL ON AN OUTBREAK
-# (G$outbreak). A fixed-R0 representative outbreak is costed separately.
+# CONDITIONING: none. R0 is FIXED per scenario in MAYV_ca_lhs.R (low = 1.20, high = 2.50),
+# so every draw is the same transmission regime and outbreak size is unimodal. Every summary
+# here is over ALL draws (G$outbreak is now every row), matching the engine.
 #
 # DEATHS: MAYV has no confirmed attributable death, so the engine sets CFR = 0. This
 # layer is DIRECT MEDICAL cost only and never costed deaths anyway, so nothing changes.
@@ -43,7 +43,7 @@ set.seed(4042)
 G  <- readRDS("MAYV_ca_engine_results.rds")
 ND <- G$N_DRAWS
 scen_names <- G$scen_names
-ok <- G$outbreak                      # integer indices of draws that took off
+ok <- G$outbreak                      # ALL draws (fixed R0 -> no take-off conditioning)
 stopifnot(length(ok) > 0)
 
 # ------------------------------------------------------------
@@ -128,7 +128,7 @@ cost_pd  <- setNames(lapply(scen_names, function(s) cost_of(G$per_draw[[s]])$cos
 count_pd <- setNames(lapply(scen_names, function(s) cost_of(G$per_draw[[s]])$count), scen_names)
 
 # ------------------------------------------------------------
-# 4. Summaries -- CONDITIONAL ON AN OUTBREAK (rows `ok`)
+# 4. Summaries -- over ALL draws (rows `ok`, which is every draw at fixed R0)
 # ------------------------------------------------------------
 q3  <- function(x) c(median(x), quantile(x, .025), quantile(x, .975))
 fmt <- function(x, dp = 0) sprintf("%s (%s - %s)",
@@ -197,7 +197,7 @@ sh_percase <- data.frame(
   stringsAsFactors = FALSE)
 
 # ------------------------------------------------------------
-# 6. Deterministic point-estimate chain (hand-checkable, baseline | outbreak)
+# 6. Deterministic point-estimate chain (hand-checkable, baseline at median inputs)
 # ------------------------------------------------------------
 M <- function(nm) P(nm)$median
 m_appt<-M(PARS[1]); m_mm<-M(PARS[2]); m_dip<-M(PARS[3]); m_ace<-M(PARS[4])
@@ -216,11 +216,11 @@ B_psub <- median((b[, "n_subacute"] + b[, "n_chronic"]) / b[, "symptomatic"])
 B_pchr <- median(b[, "n_chronic"] / b[, "symptomatic"])
 sh_audit <- data.frame(
   step = 1:9,
-  quantity = c("Symptomatic cases (median | outbreak)", "Hospitalised", "Non-hospitalised",
+  quantity = c("Symptomatic cases (median, all draws)", "Hospitalised", "Non-hospitalised",
                "Share entering sub-acute", "Share entering chronic",
                "Inpatient cost", "Outpatient acute cost", "Outpatient sub-acute cost",
                "Outpatient chronic cost"),
-  formula = c("from engine (conditional on outbreak)", "from engine", "symptomatic - hospitalised",
+  formula = c("from engine (all draws, fixed R0)", "from engine", "symptomatic - hospitalised",
               "(n_subacute + n_chronic) / symptomatic", "n_chronic / symptomatic",
               sprintf("%.1f hospitalised x %.2f per admission", B_hosp, mpc_h),
               sprintf("%.0f non-hosp x %.2f per case", B_nonh, mpc_a),
@@ -267,7 +267,7 @@ sh_notes <- data.frame(item = c(
  "Brazilian MoH / SES-RJ chikungunya flowchart, 10/01/19.",
  "MAYV_ca_engine_results.rds -- unified Monte Carlo off the MAYV LHS ensemble.",
  sprintf("52 weeks, index %d-%d (2025-W24 -> 2026-W22; hybrid CHIKV-beta + dry-season envelope).", min(G$EVAL_WIN), max(G$EVAL_WIN)),
- sprintf("CONDITIONAL ON AN OUTBREAK: %d of %d draws took off (P = %.1f%%, attack > %.1f%% of susceptibles). Unconditional means would be dominated by non-take-off draws.", length(ok), ND, 100*G$p_outbreak, G$OUTBREAK_ATTACK_THRESH),
+ sprintf("NO CONDITIONING: R0 is FIXED at %.2f (%s scenario), so all %d draws are one transmission regime and are summarised together. For reference %.1f%% of draws exceed the legacy attack > %.1f%% filter, which is reported as a diagnostic only -- at fixed R0 it would bisect a unimodal distribution.", G$R0_fixed, G$R0_scenario, ND, 100*G$frac_over_legacy_thresh, G$OUTBREAK_ATTACK_THRESH),
  sprintf("%d. Cost parameters are drawn by Latin hypercube and paired row-wise with the epidemic draws, so cost and epidemic uncertainty propagate jointly.", ND),
  "NON-HOSPITALISED modelled symptomatic cases (hospitalised excluded to avoid double counting).",
  "Hospitalised cases from the engine (symptomatic x hospitalisation rate).",
@@ -291,10 +291,10 @@ saveRDS(list(cost_pd = cost_pd, count_pd = count_pd, outbreak = ok,
 
 cat("Wrote MAYV_ca_costs.xlsx (9 sheets) + MAYV_ca_costs.rds\n\n")
 cat("Borrowed-formula replication check (Goncalves CHIKV Rio 2019):\n"); print(sh_check)
-cat(sprintf("\nBaseline MAYV direct medical cost | outbreak (BRL 2019, median [95%% UI]); %d/%d draws:\n",
+cat(sprintf("\nBaseline MAYV direct medical cost (BRL 2019, median [95%% UI]); all %d/%d draws:\n",
             length(ok), ND))
 bm <- cost_pd[["No vaccine (baseline)"]][ok, , drop = FALSE]
 for (k in COMP) cat(sprintf("  %-22s %s\n", k, fmt(q3(bm[, k]))))
-cat("\nCost averted by the disease-blocking vaccine | outbreak:\n")
+cat("\nCost averted by the disease-blocking vaccine (all draws):\n")
 am <- (base - cost_pd[[vac[1]]])[ok, , drop = FALSE]
 for (k in COMP) cat(sprintf("  %-22s %s\n", k, fmt(q3(am[, k]))))

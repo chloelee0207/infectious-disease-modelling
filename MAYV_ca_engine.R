@@ -4,15 +4,20 @@
 # MAYV's own engine (the analogue of CHIKV_ca_engine.R; the CHIKV engine/LHS are
 # left untouched). ONE uncertainty propagation -> burden + DALY + NNV, consistent
 # draw-for-draw. It CONSUMES MAYV_ca_lhs_ensemble.rds (the CHIKV-beta-envelope outbreak
-# at sampled wet-season-PEAK R0 ~ Lognormal[high], flat Lima-2021 immunity), and
-# layers vaccine + severity + DALY draws on top.
+# at a FIXED wet-season-PEAK R0, flat Lima-2021 immunity), and layers vaccine + severity
+# + DALY draws on top.
 #
-# KEY MAYV FRAMING -- CONDITION ON AN OUTBREAK. Under seasonal-peak scaling a single
-# introduction only self-sustains when peak R0 is high (~2.5-3.5); most high-scenario
-# draws fizzle. So we report BOTH: P(outbreak) = share of draws that take off
-# (baseline attack > OUTBREAK_ATTACK_THRESH), and the burden/DALY/NNV distributions
-# CONDITIONAL on taking off (over the outbreak draws only). This is the honest read of
-# a steep-threshold, single-introduction system (seeding kept deliberately conservative).
+# KEY MAYV FRAMING -- FIXED R0 PER SCENARIO, NO TAKE-OFF CONDITIONING. R0 is set by the
+# scenario in MAYV_ca_lhs.R (low = 1.20 Caicedo outside-Amazon; high = 2.50 sustained urban
+# Aedes transmission) rather than sampled, because the published MAYV R0 figures are point
+# estimates from DIFFERENT settings and decades -- between-setting heterogeneity, not
+# uncertainty about one municipality. With R0 fixed, every draw is the same transmission
+# regime, outbreak size is UNIMODAL, and the burden/DALY/NNV distributions are reported over
+# ALL draws. The 95% UIs therefore carry natural-history, reporting, symptomatic-fraction,
+# prior-immunity, vaccine and severity/DALY/cost uncertainty -- all genuine single-setting
+# quantities -- and NOT the R0 span, which is varied ACROSS scenarios instead.
+# (The old sampled-R0 design needed a take-off filter because draws straddled the epidemic
+# threshold and the output was bimodal; that filter is now retained as a diagnostic only.)
 #
 # BORROWED severity/DALY (no MAYV-specific data): CHIKV disease-progression params via
 # load_burden_params()/load_daly_params() in ca_common.R -- a CHIKV-equivalent UPPER
@@ -239,8 +244,8 @@ wk_base <- wk_vacc <- matrix(NA_real_, N_DRAWS, T_weeks)   # weekly symptomatic 
 # to already-immune eligible people (they cannot benefit) = 1 - on-target/administered.
 doses_deliv <- doses_ontarget <- numeric(N_DRAWS)
 
-cat(sprintf("Running %d draws (baseline + pre-outbreak disease-blocking), conditioning threshold attack > %.1f%%...\n",
-            N_DRAWS, OUTBREAK_ATTACK_THRESH))
+cat(sprintf("Running %d draws (baseline + pre-outbreak disease-blocking) at FIXED R0 = %.2f, no conditioning...\n",
+            N_DRAWS, E$R0_fixed))
 for (i in 1:N_DRAWS) {
   R0i<-E$R0[i]; gi<-E$gamma[i]; si<-E$sigma[i]; ri<-E$rho[i]; psi<-E$prop_symp[i]; immi<-E$immune_frac[i]
   Rimm <- rep(immi, A); sus <- N*(1-Rimm); I0i <- I0_total * sus/sum(sus)
@@ -269,14 +274,28 @@ for (i in 1:N_DRAWS) {
 }
 
 # ------------------------------------------------------------
-# 5. Condition on an outbreak; averted + NNV over outbreak draws (paired per draw)
+# 5. Aggregate over ALL draws (NO take-off conditioning); averted + NNV paired per draw
 # ------------------------------------------------------------
-outbreak <- which(attack_base > OUTBREAK_ATTACK_THRESH)
-p_outbreak <- length(outbreak) / N_DRAWS
-cat(sprintf("\nP(outbreak takes off | high-R0 prior) = %.1f%%  (%d / %d draws, attack > %.1f%%)\n",
-            100*p_outbreak, length(outbreak), N_DRAWS, OUTBREAK_ATTACK_THRESH))
-if (length(outbreak) < 20)
-  cat("  NOTE: few outbreak draws -- conditional estimates are noisy; consider a wider high prior or lower threshold.\n")
+# R0 is now FIXED per scenario (see MAYV_ca_lhs.R), so every draw is the SAME transmission
+# regime and outbreak size is UNIMODAL -- there is no fizzle/take-off split to condition on.
+# Conditioning was only ever needed under the old sampled-R0 prior, where draws straddled
+# the epidemic threshold and the output was bimodal. Applying it now would bisect a single
+# continuous distribution at an arbitrary point and badly misreport the centre: e.g. at
+# R0 = 2.50 only ~29% of draws exceed 1% attack rate, yet the MEDIAN draw is a real
+# outbreak of several hundred symptomatic cases. So we report over all N_DRAWS.
+#
+# `outbreak` is retained as the row index used downstream (MAYV_ca_outputs.R /
+# MAYV_ca_costs.R read G$outbreak) but is now simply ALL draws.
+outbreak   <- seq_len(N_DRAWS)
+p_outbreak <- 1
+# Diagnostic only: what share of draws would have passed the old take-off filter.
+frac_over_thresh <- mean(attack_base > OUTBREAK_ATTACK_THRESH)
+cat(sprintf("\nR0 FIXED at %.2f (%s scenario) -> reporting over ALL %d draws, no take-off conditioning.\n",
+            E$R0_fixed, E$R0_scenario, N_DRAWS))
+cat(sprintf("  Diagnostic: %.1f%% of draws exceed the legacy %.1f%% attack-rate filter (NOT used to condition).\n",
+            100*frac_over_thresh, OUTBREAK_ATTACK_THRESH))
+cat(sprintf("  Baseline attack rate: median %.3f%% [%.3f%%, %.3f%%]\n",
+            median(attack_base), quantile(attack_base, .025), quantile(attack_base, .975)))
 
 base_pd <- per_draw[["No vaccine (baseline)"]]
 vac_pd  <- per_draw[[vac_name]]
@@ -284,7 +303,7 @@ averted <- base_pd[, NNV_OUT, drop=FALSE] - vac_pd[, NNV_OUT, drop=FALSE]
 nnv     <- vac_pd[, "doses"] / averted                     # doses recycled across the 4 cols
 nnv[!is.finite(nnv) | nnv < 0] <- NA
 
-# Conditional (outbreak-only) aggregation
+# Aggregation over ALL draws (`outbreak` is every row -- see section 5)
 q3  <- function(x) quantile(x, c(.5,.025,.975), na.rm = TRUE)
 aggc <- function(mat) do.call(rbind, lapply(colnames(mat), function(o) {
   q <- q3(mat[outbreak, o]); data.frame(outcome=o, median=q[1], lo=q[2], hi=q[3], row.names=NULL) }))
@@ -296,22 +315,21 @@ agg_nnv_cond     <- cbind(scenario = vac_name,             aggc(nnv))
 # 6. Console summary (conditional on taking off)
 # ------------------------------------------------------------
 fmtq_ <- function(v, d=0) fmtq(v[outbreak], d)
-cat("\n=== Baseline burden | outbreak (median, 95% UI over outbreak draws) ===\n")
+cat("\n=== Baseline burden (median, 95% UI over all draws at fixed R0) ===\n")
 for (o in c("infections","symptomatic","hospitalisations","deaths","daly"))
   cat(sprintf("  %-16s %s\n", o, fmtq_(base_pd[, o], if (o=="deaths") 1 else 0)))
-cat("\n=== Pre-outbreak disease-blocking vaccine, AVERTED | outbreak ===\n")
+cat("\n=== Pre-outbreak disease-blocking vaccine, AVERTED (all draws) ===\n")
 for (o in NNV_OUT) cat(sprintf("  %-16s %s\n", o, fmtq_(averted[, o], if (o=="deaths") 1 else 0)))
-cat("\n=== NNV (doses per burden averted) | outbreak ===\n")
+cat("\n=== NNV (doses per burden averted, all draws) ===\n")
 for (o in NNV_OUT) cat(sprintf("  %-16s %s\n", o, fmtq(nnv[outbreak, o], 0)))
 
 # ------------------------------------------------------------
 # 6b. Epidemic curve (CHIKV-style): symptomatic cases, baseline vs pre-outbreak
-#     disease-blocking, plotted CONDITIONAL on the outbreak taking off. If too few
-#     outbreak draws (e.g. the low-R0 scenario), fall back to ALL draws -- which then
-#     correctly shows a flat ~no-outbreak curve rather than a spurious hump.
+#     disease-blocking, over ALL draws. R0 is fixed, so no take-off conditioning is
+#     applied: at low R0 the curve is correctly flat (~no outbreak) and at high R0 it
+#     shows the single transmission regime with its genuine parameter band.
 # ------------------------------------------------------------
-use_cond <- length(outbreak) >= 20
-draw_set <- if (use_cond) outbreak else seq_len(N_DRAWS)
+draw_set <- seq_len(N_DRAWS)
 bandq    <- function(M) apply(M[draw_set, , drop = FALSE], 2, quantile, c(.025,.5,.975), na.rm = TRUE)
 bb <- bandq(wk_base); bv <- bandq(wk_vacc)
 wk_num   <- function(idx) ifelse(idx <= 30, idx + 23, idx - 30)     # 2025-W24..W53 | 2026-W01..W22
@@ -323,9 +341,8 @@ roll_beg <- start_pre + median(delay_d)                            # dosing begi
 roll_end <- roll_beg + max(1, round(1 / mean(del_d))) - 0.5        # ~vaccine rollout window
 pdf_df <- data.frame(week = 1:T_weeks, b_lo=bb[1,], b_md=bb[2,], b_hi=bb[3,],
                      v_lo=bv[1,], v_md=bv[2,], v_hi=bv[3,])
-ttl <- sprintf("MAYV symptomatic cases (2025-W24 - 2026-W22) | R0 '%s'%s", E$R0_scenario,
-               if (use_cond) sprintf(", conditional on outbreak (%d/%d)", length(outbreak), N_DRAWS)
-               else ", all draws (~no outbreak)")
+ttl <- sprintf("MAYV symptomatic cases (2025-W24 - 2026-W22) | %s scenario, fixed R0 = %.2f (all %d draws)",
+               E$R0_scenario, E$R0_fixed, N_DRAWS)
 p_epi <- ggplot(pdf_df, aes(week)) +
   annotate("rect", xmin = roll_beg-0.5, xmax = roll_end, ymin = -Inf, ymax = Inf, fill = "#cdebc5", alpha = 0.5) +
   geom_vline(xintercept = E$year_break, linetype = "dashed", colour = "grey55") +
@@ -357,8 +374,8 @@ base_curve_plot <- function(M, draws, ytitle, ttl, fn) {
   ggsave(fn, p, width = 8, height = 4.5, dpi = 120); cat("Saved baseline (no-vaccine) plot:", fn, "\n")
 }
 base_curve_plot(wk_base, draw_set, "Predicted symptomatic cases (no vaccine)",
-  sprintf("MAYV symptomatic, NO vaccine (2025-W24 - 2026-W22) | R0 '%s'%s", E$R0_scenario,
-          if (use_cond) sprintf(", conditional on outbreak (%d/%d)", length(outbreak), N_DRAWS) else ", all draws"),
+  sprintf("MAYV symptomatic, NO vaccine (2025-W24 - 2026-W22) | %s scenario, fixed R0 = %.2f (all %d draws)",
+          E$R0_scenario, E$R0_fixed, N_DRAWS),
   sprintf("MAYV_ca_baseline_%s.png", E$R0_scenario))
 
 
@@ -368,6 +385,8 @@ base_curve_plot(wk_base, draw_set, "Predicted symptomatic cases (no vaccine)",
 saveRDS(list(
   per_draw = per_draw, averted = averted, nnv = nnv,
   attack_base = attack_base, outbreak = outbreak, p_outbreak = p_outbreak,
+  R0_fixed = E$R0_fixed, R0_sampled = FALSE, conditioning = "none (fixed R0; all draws)",
+  frac_over_legacy_thresh = frac_over_thresh,
   OUTBREAK_ATTACK_THRESH = OUTBREAK_ATTACK_THRESH,
   rho_draw = E$rho,
   doses_deliv = doses_deliv, doses_ontarget = doses_ontarget,
@@ -379,7 +398,11 @@ saveRDS(list(
   start_pre = start_pre, immun_delay = immun_delay, deliv_median = median(del_d),
   delay_d = delay_d, dose_start = start_pre + median(delay_d)),
   "MAYV_ca_engine_results.rds")
-cat("\nSaved MAYV_ca_engine_results.rds (per-draw + conditional aggregates; severity-phase counts included).\n")
+# Scenario-tagged copy so both R0 scenarios can coexist on disk for comparison.
+file.copy("MAYV_ca_engine_results.rds",
+          sprintf("MAYV_ca_engine_results_%s.rds", E$R0_scenario), overwrite = TRUE)
+cat(sprintf("\nSaved MAYV_ca_engine_results.rds and MAYV_ca_engine_results_%s.rds\n  (per-draw + aggregates over ALL draws at fixed R0 = %.2f; severity-phase counts included).\n",
+            E$R0_scenario, E$R0_fixed))
 
 
 }  # end !DEFS_ONLY

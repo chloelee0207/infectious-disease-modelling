@@ -16,8 +16,6 @@
 #     sigma   = 1 / Normal(period)   intrinsic incubation ~12 d (tight)
 #     rho     ~ Beta(20, 60)         reporting rate (mean 0.25)      [hardcoded]
 #     prop_symp ~ Beta(35.84, 32.56) symptomatic fraction (med 0.524)[hardcoded]
-#     R0      ~ Lognormal (SAMPLED), the wet-season PEAK R_eff, from a scenario prior:
-#             low = Caicedo 1.1-1.3 (~no outbreak); high = urban 1.18-3.51 (med ~2.03)
 #     immune  ~ Lognormal            prior-immune FRACTION, FLAT across ages;
 #                                    Lima 2021 Central-West 8% (95% CI 3-18%)
 #
@@ -32,17 +30,44 @@
 # which matters solely for age-stratified burden (add an exposure-weight vector there).
 # p sets S(0), so it widens the ATTACK-RATE / total-infection band.
 #
-# R0 = wet-season PEAK, SAMPLED from a scenario prior. base_beta = R0 * gamma * season,
-# so R_eff(t) = R0*season(t)*S/N is INDEPENDENT of gamma (gamma/sigma move only PEAK
-# TIMING & HEIGHT; size is driven by R0 & immunity). SEASONAL-PEAK scaling (envelope
-# rescaled so max = 1) makes the cited R0 the wet-season PEAK R_eff -- the honest,
-# load-bearing quantity: it avoids the mean-1 framing that hides a higher true peak. The
-# shape is the HYBRID envelope (CHIKV beta_t rise/peak + climatological dry-season tail). R0 is drawn per LHS row from a Lognormal (R0_SCENARIO): "low" (Caicedo outside-
-# Amazon 1.1-1.3) barely clears 1 at the peak -> no self-sustaining outbreak (deterministic
-# gives a tiny outbreak; stochastically ~extinction); "high" (urban-adapted 1.18-3.51,
-# med ~2.03) gives an outbreak with a genuine R0 band. NB R0(t) = R0*season(t) is just
-# beta_t/gamma with an imposed seasonal shape (standard seasonal forcing), NOT a new
-# formula. There is NO MAYV outbreak to fit, so this is PRIOR sampling, not fitting.
+# R0 = wet-season PEAK R_eff, and it is FIXED PER SCENARIO -- NOT sampled. base_beta =
+# R0 * gamma * season, so R_eff(t) = R0*season(t)*S/N is INDEPENDENT of gamma
+# (gamma/sigma move only PEAK TIMING & HEIGHT; size is driven by R0 & immunity).
+# SEASONAL-PEAK scaling (envelope rescaled so max = 1) makes the cited R0 the wet-season
+# PEAK R_eff -- the honest, load-bearing quantity: it avoids the mean-1 framing that hides
+# a higher true peak. NB R0(t) = R0*season(t) is just beta_t/gamma with an imposed seasonal
+# shape (standard seasonal forcing), NOT a new formula.
+#
+# WHY R0 IS FIXED, NOT SAMPLED. The published MAYV R0 figures are POINT ESTIMATES FROM
+# DIFFERENT PLACES AND DECADES, each with its own interval -- Caicedo et al. 2021 give
+# 1.11 (French Guiana 1960), 3.47 (Brazil 1966), 2.1-2.9 (Amazon basin), 1.1-1.3 (outside
+# the Amazon); Dodero-Rojas et al. 2020 give 1.18-3.51 as LOWER/UPPER LIMITS. The spread
+# BETWEEN them is between-setting heterogeneity (vectors, land use, host contact), not
+# uncertainty about one municipality. Sampling R0 across that span therefore does not
+# produce a meaningful 95% UI for Caldas Novas: because outbreak size is a steep convex
+# function of R0, the draws split into "fizzle" and "explode" regimes, the output becomes
+# bimodal, and the reported central estimate detaches from the cited central R0. (Under the
+# old truncated-Lognormal[1.18,3.51] prior the stated median was 2.03, which alone yields
+# ~25 infections, yet the reported conditional median was ~6,650 -- i.e. the number
+# described R0 ~= 2.83, the take-off tail.) R0 is a SCENARIO-DEFINING variable here, so we
+# fix it and propagate the parameters that ARE genuine single-setting uncertainty.
+#
+# THE TWO SCENARIOS (R0_SCENARIO, peak R_eff):
+#   low  = 1.20  Caicedo et al. 2021 outside-Amazon-basin (1.1-1.3) -- current ecology.
+#                Read as a PEAK (not annual-mean) value: this is the conservative reading,
+#                since an annual-mean 1.2 would imply a peak of ~3+ and a far larger
+#                outbreak. A single introduction does not self-sustain at this R0.
+#   high = 2.50  Sustained urban Aedes-borne transmission. Anchored on THREE independent
+#                lines that converge on 2-3: (i) the peak R0 fitted for CHIKV in THIS
+#                municipality, 2.67 (95% UI 2.39-3.13) -- same vector, climate, population;
+#                (ii) Caicedo's Amazon-basin range 2.1-2.9; (iii) the growth rate of the
+#                Belterra 1977-78 MAYV outbreak, ~1.9-2.5. 2.50 sits at the conservative
+#                end of all three. This is a COUNTERFACTUAL: it assumes MAYV acquires
+#                Ae. aegypti transmission competence it is not currently known to possess,
+#                and is not a prediction.
+# BECAUSE R0 IS FIXED, outbreak size is unimodal within a scenario and there is no
+# fizzle/take-off split, so the engine reports over ALL draws (no conditioning).
+# There is still NO MAYV outbreak to fit, so these remain PRIOR-PREDICTIVE bands.
 #
 # WINDOW: 2025-W24 -> 2026-W22 (52 epi weeks). Extended past the CHIKV fit window (which
 # ends 2026-W22) so the dry-season tail sits inside the window and every outbreak resolves.
@@ -155,21 +180,14 @@ p_m <- sr$Median; p_sd <- sd_of(sr)            # sigma stored as a PERIOD (weeks
 rab <- c(a = 20, b = 60)                        # rho ~ Beta(20,60), mean 0.25
 ps_a <- 35.84; ps_b <- 32.56                    # prop_symp ~ Beta, median 0.524
 
-# R0 = wet-season PEAK R_eff (r0_is_peak = TRUE above), SAMPLED from a scenario range.
-# The endpoints are LOWER/UPPER LIMITS (hard bounds), NOT a 95% UI: high = Dodero-Rojas
-# 2020 estimated MAYV R0 range [1.18, 3.51]; low = Caicedo outside-Amazon [1.10, 1.30].
-# We keep a right-skewed Lognormal SHAPE (median = geometric centre) but TRUNCATE it at
-# the two limits (below), so every draw lands strictly within [lo, hi] -- no tail past
-# the upper limit that would blow up the outbreak-size band.
-if (!exists("R0_SCENARIO")) R0_SCENARIO <- "high"   # "high" Dodero-Rojas | "low" Caicedo (~no outbreak); overridable via a pre-set var
-R0_priors <- list(
-  low  = c(lo = 1.10, hi = 1.30),               # Caicedo outside-Amazon limits -> median ~1.20
-  high = c(lo = 1.18, hi = 3.51))               # Dodero-Rojas 2020 MAYV R0 limits -> median ~2.03
-r0p        <- R0_priors[[R0_SCENARIO]]
-R0_lo      <- unname(r0p["lo"]); R0_hi <- unname(r0p["hi"])
-R0_meanlog <- (log(R0_lo) + log(R0_hi)) / 2     # median at the geometric centre of the range
-R0_sdlog   <- (log(R0_hi) - log(R0_lo)) / (2 * 1.96)
-R0_median  <- unname(exp(R0_meanlog))
+# R0 = wet-season PEAK R_eff (r0_is_peak = TRUE above), FIXED PER SCENARIO (see the
+# header for why it is not sampled). Two scenarios only; each is one transmission regime.
+if (!exists("R0_SCENARIO")) R0_SCENARIO <- "high"   # "high" = 2.50 | "low" = 1.20; overridable via a pre-set var
+R0_FIXED <- c(low = 1.20,      # Caicedo et al. 2021 outside-Amazon-basin, read as a PEAK
+              high = 2.50)     # sustained urban Aedes transmission; conservative vs CHIKV-in-Caldas 2.67
+stopifnot(R0_SCENARIO %in% names(R0_FIXED))
+R0_VALUE  <- unname(R0_FIXED[[R0_SCENARIO]])
+R0_median <- R0_VALUE                           # name kept for downstream compatibility
 
 # Prior immunity (FLAT fraction), Lima et al. 2021 pooled CENTRAL-WEST exposure rate
 # 8% (95% CI 3-18%, I2=98%). Right-skewed -> Lognormal calibrated to the CI endpoints:
@@ -180,10 +198,11 @@ imm_meanlog <- (log(imm_lo95) + log(imm_hi95)) / 2         # median = exp(meanlo
 imm_sdlog   <- (log(imm_hi95) - log(imm_lo95)) / (2*1.96)
 imm_base    <- 0.08                                        # Lima central estimate, for the baseline run
 
-cat(sprintf("Priors: gamma~N(%.3f,%.4f)  latent~N(%.3f,%.4f)wk (sigma=1/latent)  rho~Beta(%d,%d)  prop_symp~Beta(%.2f,%.2f)  R0~truncLogN[%s] med %.2f range[%.2f,%.2f] (%s)  immune~logN(med %.3f, 95%%[%.2f,%.2f])\n",
+cat(sprintf("SAMPLED priors: gamma~N(%.3f,%.4f)  latent~N(%.3f,%.4f)wk (sigma=1/latent)  rho~Beta(%d,%d)  prop_symp~Beta(%.2f,%.2f)  immune~logN(med %.3f, 95%%[%.2f,%.2f])\n",
             g_m, g_sd, p_m, p_sd, rab["a"], rab["b"], ps_a, ps_b,
-            R0_SCENARIO, R0_median, R0_lo, R0_hi, if (r0_is_peak) "seasonal-peak" else "annual-mean",
             exp(imm_meanlog), imm_lo95, imm_hi95))
+cat(sprintf("FIXED (not sampled): R0 = %.2f  (%s scenario, %s)\n",
+            R0_VALUE, R0_SCENARIO, if (r0_is_peak) "seasonal-peak R_eff" else "annual-mean"))
 
 # ------------------------------------------------------------
 # 6. One forward run -> weekly reported / infections + summary scalars
@@ -203,31 +222,32 @@ run_draw <- function(R0, g, s, r, ps, imm) {
        attack = 100 * sum(inf_wk) / sum(sus), immune = 100 * imm)
 }
 
-# Baseline at median inputs (dashed reference on the plots), scenario R0 median
-base <- run_draw(R0_median, g_m, 1/p_m, rab["a"]/sum(rab), 0.5242478, imm_base)
-cat(sprintf("Baseline R0=%.2f (%s median inputs, immune %.1f%%): total infections %.0f | total reported %.1f | peak reported wk %d (%.1f) | attack %.2f%%\n",
-            R0_median, R0_SCENARIO, base$immune, base$tot_inf, base$tot_rep, base$peak_rep_wk, base$peak_rep, base$attack))
-# Reference: Caicedo outside-Amazon PEAK R0=1.2 under the SAME scaling -> no self-sustaining outbreak
-base_low <- run_draw(1.20, g_m, 1/p_m, rab["a"]/sum(rab), 0.5242478, imm_base)
-cat(sprintf("Reference R0=1.20 (Caicedo peak, same scaling): total infections %.0f | total reported %.1f | attack %.3f%%  <- deterministic; stochastically ~extinction\n",
-            base_low$tot_inf, base_low$tot_rep, base_low$attack))
+# Baseline at median inputs (dashed reference on the plots), at the scenario's fixed R0
+base <- run_draw(R0_VALUE, g_m, 1/p_m, rab["a"]/sum(rab), 0.5242478, imm_base)
+cat(sprintf("Baseline R0=%.2f (%s scenario, median inputs, immune %.1f%%): total infections %.0f | total reported %.1f | peak reported wk %d (%.1f) | attack %.2f%%\n",
+            R0_VALUE, R0_SCENARIO, base$immune, base$tot_inf, base$tot_rep, base$peak_rep_wk, base$peak_rep, base$attack))
+# Reference: the OTHER scenario's R0 under the SAME scaling, for context in the log.
+R0_other <- unname(R0_FIXED[[setdiff(names(R0_FIXED), R0_SCENARIO)]])
+base_other <- run_draw(R0_other, g_m, 1/p_m, rab["a"]/sum(rab), 0.5242478, imm_base)
+cat(sprintf("Reference R0=%.2f (other scenario, same scaling): total infections %.0f | total reported %.1f | attack %.3f%%\n",
+            R0_other, base_other$tot_inf, base_other$tot_rep, base_other$attack))
 
 # ------------------------------------------------------------
-# 7. Latin Hypercube (6 inputs), forward-simulate each
+# 7. Latin Hypercube (5 SAMPLED inputs), forward-simulate each.
+#    R0 is FIXED per scenario (header), so it is NOT an LHS dimension: the propagated
+#    bands below carry natural-history / reporting / symptomatic-fraction / prior-immunity
+#    uncertainty ONLY. Every draw is the same transmission regime, so the outbreak-size
+#    distribution is unimodal and needs no take-off conditioning.
 # ------------------------------------------------------------
 set.seed(2024); n <- 1000
 lhs_col <- function(n) (sample.int(n) - runif(n)) / n
-U   <- sapply(1:6, function(j) lhs_col(n))
+U   <- sapply(1:5, function(j) lhs_col(n))
 gam <- qnorm(U[,1], g_m, g_sd)                  # rate
 sig <- 1/qnorm(U[,2], p_m, p_sd)                # period -> rate
 rho <- qbeta(U[,3], rab["a"], rab["b"])
 psy <- qbeta(U[,4], ps_a, ps_b)
-# TRUNCATED Lognormal on [R0_lo, R0_hi] (Dodero's hard limits): map the LHS uniform onto
-# the [lo, hi] CDF span so every peak-R0 draw lands strictly inside the range (no tails).
-R0v <- qlnorm(plnorm(R0_lo, R0_meanlog, R0_sdlog) +
-              U[,5] * (plnorm(R0_hi, R0_meanlog, R0_sdlog) - plnorm(R0_lo, R0_meanlog, R0_sdlog)),
-              R0_meanlog, R0_sdlog)
-imm <- qlnorm(U[,6], imm_meanlog, imm_sdlog)    # flat prior-immune fraction (Lima 2021)
+imm <- qlnorm(U[,5], imm_meanlog, imm_sdlog)    # flat prior-immune fraction (Lima 2021)
+R0v <- rep(R0_VALUE, n)                         # FIXED: scenario-defining, not sampled
 
 rep_mat <- inf_mat <- matrix(NA_real_, n, T_weeks)
 tot_rep <- tot_inf <- peak_rep_wk <- peak_rep <- attack <- R0peak <- immune <- rep(NA_real_, n)
@@ -251,11 +271,12 @@ cat(sprintf("Kept %d / %d finite draws.\n", length(ok), n))
 # ------------------------------------------------------------
 q3   <- function(x) quantile(x, c(.5, .025, .975), na.rm = TRUE)
 band <- function(M) apply(M[ok, , drop = FALSE], 2, quantile, c(.025, .5, .975), na.rm = TRUE)
-cat("\n=========== PROPAGATED MAYV RESULTS (", length(ok), " draws) ===========\n", sep = "")
+cat("\n=========== PROPAGATED MAYV RESULTS (", length(ok), " draws, R0 FIXED = ",
+    sprintf("%.2f", R0_VALUE), ") ===========\n", sep = "")
+cat("Bands below carry gamma / sigma / rho / prop_symp / prior-immunity uncertainty ONLY.\n")
 cat(sprintf("Prior immunity:      propagated %.1f%% [%.1f%%, %.1f%%]\n",
             q3(immune[ok])[1], q3(immune[ok])[2], q3(immune[ok])[3]))
-cat(sprintf("R0 at seasonal peak: baseline %.2f -> propagated %.2f [%.2f, %.2f]\n",
-            R0_median*max(season), q3(R0peak[ok])[1], q3(R0peak[ok])[2], q3(R0peak[ok])[3]))
+cat(sprintf("R0 at seasonal peak: FIXED %.2f (no band by construction)\n", R0_VALUE*max(season)))
 cat(sprintf("Attack rate (of susceptibles): baseline %.2f%% -> propagated %.2f%% [%.2f%%, %.2f%%]\n",
             base$attack, q3(attack[ok])[1], q3(attack[ok])[2], q3(attack[ok])[3]))
 cat(sprintf("Total infections:  baseline %.0f -> propagated %.0f [%.0f, %.0f]\n",
@@ -291,7 +312,7 @@ p_rep <- ggplot(data.frame(week = weeks, lo = rb[1,], med = rb[2,], hi = rb[3,],
   scale_x_continuous(breaks = x_ticks$week_index, labels = x_ticks$week) +
   labs(x = "Week", y = "Predicted reported MAYV cases",
        title = "Hypothetical MAYV outbreak: propagated 95% band",
-       subtitle = "Median (solid) + 95% band from gamma/sigma/rho/prop_symp/R0/immunity priors; baseline at median inputs (dashed)") +
+       subtitle = sprintf("Median (solid) + 95%% band from gamma/sigma/rho/prop_symp/immunity priors at FIXED R0 = %.2f; baseline at median inputs (dashed)", R0_VALUE)) +
   theme_bw(12) + theme(plot.title = element_text(face = "bold", hjust = 0.5),
                        plot.subtitle = element_text(hjust = 0.5, size = 9),
                        panel.grid.minor = element_blank())
@@ -324,11 +345,15 @@ mayv_lhs_ensemble <- list(
   R0 = R0v[ok], gamma = gam[ok], sigma = sig[ok], rho = rho[ok], prop_symp = psy[ok],
   immune_frac = imm[ok],                          # per-draw FLAT immune fraction (Rimm = rep(imm, A))
   base_R0 = R0_median, R0_scenario = R0_SCENARIO, r0_is_peak = r0_is_peak,
+  R0_fixed = R0_VALUE, R0_sampled = FALSE,        # R0 is scenario-defining, not an LHS dimension
   base_gamma = g_m, base_sigma = 1/p_m, base_prop_symp = 0.5242478,
   base_immune = imm_base,
   season = season, N = N, A = A, age_df = age_df,
   I0_total = I0_total, E0 = E0, seed_week = seed_week,
   T_weeks = T_weeks, weeks = weeks, x_ticks = x_ticks, year_break = year_break)
 saveRDS(mayv_lhs_ensemble, "MAYV_ca_lhs_ensemble.rds")
+# Scenario-tagged copy, so both R0 scenarios can coexist on disk for comparison.
+saveRDS(mayv_lhs_ensemble, sprintf("MAYV_ca_lhs_ensemble_%s.rds", R0_SCENARIO))
 
-cat("\nSaved MAYV_ca_lhs_reported.png, MAYV_ca_lhs_infections.png, MAYV_ca_lhs_draws.csv, MAYV_ca_lhs_ensemble.rds\n")
+cat(sprintf("\nSaved MAYV_ca_lhs_reported.png, MAYV_ca_lhs_infections.png, MAYV_ca_lhs_draws.csv,\n  MAYV_ca_lhs_ensemble.rds and MAYV_ca_lhs_ensemble_%s.rds (R0 = %.2f)\n",
+            R0_SCENARIO, R0_VALUE))

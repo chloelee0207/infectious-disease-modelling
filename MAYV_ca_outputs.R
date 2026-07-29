@@ -17,9 +17,11 @@
 #   * daly_averted `pct_DALY` likewise carries its 95% UI.
 #
 # MAYV-SPECIFIC FRAMING (differs from CHIKV, which is fitted to a real outbreak):
-#   * CONDITIONAL ON AN OUTBREAK. MAYV only takes off in a minority of draws, so every
-#     figure is summarised over the take-off draws (G$outbreak), exactly as the engine
-#     reports burden. Unconditional means would be dominated by non-take-off zeros.
+#   * NO TAKE-OFF CONDITIONING. R0 is FIXED per scenario in MAYV_ca_lhs.R (low = 1.20,
+#     high = 2.50), so every draw is the same transmission regime and outbreak size is
+#     unimodal. Every figure is summarised over ALL draws (G$outbreak is now every row).
+#     The 95% UIs carry natural-history / reporting / symptomatic-fraction / prior-immunity
+#     / vaccine / severity-DALY uncertainty, NOT the between-setting R0 span.
 #   * ONE vaccine scenario: pre-outbreak, DISEASE-BLOCKING ONLY (VE_inf = 0), so
 #     infections are never averted (Infections = 0, and Infection NNV = NA).
 #   * DEATHS = 0: no confirmed MAYV-attributable death, so CFR = 0 in the engine ->
@@ -36,7 +38,7 @@ if (!file.exists("MAYV_ca_engine_results.rds"))
   stop("MAYV_ca_engine_results.rds not found -- run MAYV_ca_engine.R first.")
 G <- readRDS("MAYV_ca_engine_results.rds")
 
-ok        <- G$outbreak                                  # take-off draws (condition on these)
+ok        <- G$outbreak                                  # ALL draws (fixed R0 -> no conditioning)
 rho_draw  <- G$rho_draw
 scen_names <- G$scen_names
 vac_names  <- setdiff(scen_names, "No vaccine (baseline)")
@@ -53,7 +55,7 @@ fmtpct <- function(ratio) {
   sprintf("%.1f%% (%.1f - %.1f%%)", 100*q[1], 100*q[2], 100*q[3])
 }
 
-# averted (baseline - scenario), per draw, CONDITIONAL ON OUTBREAK, burden outcomes.
+# averted (baseline - scenario), per draw, over ALL draws, burden outcomes.
 av <- setNames(lapply(vac_names, function(nm)
   base_pd[ok, outcomes, drop = FALSE] - G$per_draw[[nm]][ok, outcomes, drop = FALSE]), vac_names)
 base_symp_ok <- base_pd[ok, "symptomatic"]
@@ -61,7 +63,7 @@ base_symp_ok <- base_pd[ok, "symptomatic"]
 # ============================================================
 # WORKBOOK 1 -- MAYV_ca_vacc_outputs.xlsx
 # ============================================================
-# baseline true-vs-reported: reported = rho x true (per-draw rho), over outbreak draws.
+# baseline true-vs-reported: reported = rho x true (per-draw rho), over all draws.
 base_tbl <- do.call(rbind, lapply(outcomes, function(o) {
   tv <- base_pd[ok, o]; d <- d_death(o)
   data.frame(outcome = o, true = fmtq(tv, d), reported = fmtq(rho_draw[ok]*tv, d),
@@ -110,18 +112,18 @@ scenario_totals <- data.frame(
 
 notes <- data.frame(
   parameter = c("Disease", "Seasonal envelope", "Evaluation window", "R0 interpretation",
-                "R0 sampled scenario", "P(outbreak takes off)", "Conditioning",
-                "Outbreak draws (n)", "Vaccine mechanism", "Coverage of 18-59 (median)",
+                "R0 scenario (FIXED)", "Draws exceeding legacy 1% filter", "Conditioning",
+                "Draws summarised (n)", "Vaccine mechanism", "Coverage of 18-59 (median)",
                 "VE disease-blocking (median)", "Deaths / CFR", "Severity + DALY source",
                 "Reporting rate rho", "REPORTED definition", "Uncertainty"),
   value = c("Mayaro virus (MAYV), Caldas Novas, hypothetical outbreak.",
             "Hybrid: Caldas CHIKV beta_t for the rise/peak + CHIRPS climatological dry-season tail (2026-W10 join), mean-1.",
             sprintf("2025-W24 -> 2026-W22 (weeks %d-%d).", min(G$EVAL_WIN), max(G$EVAL_WIN)),
             "R0 = wet-season PEAK R_eff (envelope rescaled so max = 1).",
-            sprintf("'%s', truncated Lognormal on Dodero-Rojas limits [1.18, 3.51].", G$R0_scenario),
-            sprintf("%.1f%% of %d draws (attack > %.1f%% of susceptibles).",
-                    100*G$p_outbreak, G$N_DRAWS, G$OUTBREAK_ATTACK_THRESH),
-            sprintf("Every figure is CONDITIONAL ON AN OUTBREAK (the %d take-off draws).", length(ok)),
+            sprintf("'%s': R0 FIXED at %.2f, not sampled. Published MAYV R0 figures are point estimates from different settings/decades (Caicedo 2021: 1.1-1.3 outside Amazon, 2.1-2.9 Amazon; Dodero-Rojas 2020 limits 1.18-3.51), i.e. between-setting heterogeneity rather than uncertainty about one municipality. R0 is varied ACROSS scenarios instead.", G$R0_scenario, G$R0_fixed),
+            sprintf("%.1f%% of %d draws exceed attack > %.1f%% of susceptibles. DIAGNOSTIC ONLY -- not used to filter: at fixed R0 the outbreak-size distribution is unimodal, so this threshold would bisect a single continuous distribution.",
+                    100*G$frac_over_legacy_thresh, G$N_DRAWS, G$OUTBREAK_ATTACK_THRESH),
+            sprintf("NONE. All %d draws are summarised (fixed R0 -> one transmission regime).", length(ok)),
             as.character(length(ok)),
             "Disease-blocking ONLY (VE_inf = 0), pre-outbreak campaign -> infections never averted.",
             sprintf("%.0f%%", 100*median(G$cov_d)),
@@ -130,11 +132,11 @@ notes <- data.frame(
             "BORROWED CHIKV (Hyolim Table S4) -- CHIKV-equivalent UPPER bound, not measured MAYV.",
             "Per-draw (Beta, median ~0.25).",
             "REPORTED = rho x TRUE per draw. Severe outcomes (hosp) are usually better ascertained, so their REPORTED values are conservative lower bounds.",
-            "Latin-hypercube over transmission (R0/gamma/sigma/rho/prop_symp/immunity) + vaccine + severity/DALY, propagated jointly."),
+            "Latin-hypercube over gamma/sigma/rho/prop_symp/prior-immunity + vaccine + severity/DALY, propagated jointly. R0 is FIXED (scenario-defining), so its between-setting span is NOT inside these UIs. Prior immunity dominates the spread (r ~ -0.86 with log symptomatic)."),
   stringsAsFactors = FALSE)
 
 # doses actually delivered to the eligible 18-59, and dose wastage. Delivered PRE-
-# OUTBREAK, so these are reported over ALL draws (not conditional on take-off).
+# OUTBREAK, so these are R0-independent (and, as everywhere now, over ALL draws).
 # wastage = doses administered to already-immune eligible people (cannot benefit)
 #         = 1 - on-target (reached susceptibles) / administered.
 doses_wastage <- data.frame(
@@ -176,7 +178,7 @@ write_xlsx(list(daly_by_scenario = daly_by_scenario, daly_averted = daly_averted
 # ============================================================
 # WORKBOOK 3 -- MAYV_ca_nnv_outputs.xlsx
 # ============================================================
-# NNV = doses / burden averted, per draw (conditional on outbreak). Same outcome set
+# NNV = doses / burden averted, per draw (all draws). Same outcome set
 # as the CHIKV NNV tab. Infection & Death are NA here (disease-blocking averts no
 # infections; MAYV has zero deaths).
 nnv_outcomes <- c(infections = "Infection", symptomatic = "Symptomatic case",
@@ -199,6 +201,6 @@ cat("Wrote MAYV_ca_vacc_outputs.xlsx (notes, baseline_true_reported, vaccinated_
     "     averted_MC_95UI, averted_per_100k_doses, scenario_totals)\n", sep = "")
 cat("Wrote MAYV_ca_daly_outputs.xlsx (daly_by_scenario, daly_averted)\n")
 cat("Wrote MAYV_ca_nnv_outputs.xlsx  (nnv)\n\n")
-cat(sprintf("Conditional on outbreak (%d/%d draws).  pct symptomatic reduced: %s\n",
-            length(ok), G$N_DRAWS, mc_tbl$pct_symp[1]))
+cat(sprintf("Fixed R0 = %.2f, all %d draws (no conditioning).  pct symptomatic reduced: %s\n",
+            G$R0_fixed, G$N_DRAWS, mc_tbl$pct_symp[1]))
 print(mc_tbl, row.names = FALSE)
