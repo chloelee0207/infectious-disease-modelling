@@ -14,10 +14,11 @@
 # Pure presentation: reads the .rds files the model scripts write and does no SEIR or
 # Monte Carlo of its own, so every value here shares the engines' per-draw propagation.
 #
-# Panel geometry. Chikungunya carries two vaccine arms and Mayaro one, so every row is a
-# CHIKV block beside a MAYV block at widths 2:1. That makes all three panel columns the
-# same physical width and keeps the disease strips over panel A aligned with the arm
-# strips below them.
+# Panel geometry. The two blocks are sized for what they have to show, NOT to line up
+# with each other: the epidemic curves get equal halves of the width, while the burden
+# blocks are only two bars wide and are inset so they do not sprawl. A therefore does not
+# share a column grid with B-D, so each block is labelled Chikungunya / Mayaro in its own
+# right.
 #
 # Mayaro has no deaths row: MAYV_ZERO_DEATHS = TRUE fixes the MAYV CFR at 0, so the
 # ratio is undefined rather than zero. The facet level is kept (drop = FALSE) to hold the
@@ -144,7 +145,7 @@ mayv$outcome <- factor(as.character(mayv$outcome), levels = OUT_LV)   # deaths k
 mayv$arm     <- factor(ARMS[1], levels = ARMS[1])                     # empty level
 chik$arm     <- factor(as.character(chik$arm), levels = ARMS)
 
-burden <- function(d, strip, ylab, x_axis, y_axis, tag) {
+burden <- function(d, strip, ylab, x_axis, y_axis, tag, disease = NULL) {
   ggplot(d, aes(scenario, med, fill = scenario)) +
     geom_col(width = .6) +
     geom_errorbar(aes(ymin = lo, ymax = hi), width = .15, linewidth = .35) +
@@ -152,9 +153,11 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag) {
     scale_fill_manual(values = FILL, name = NULL) +
     scale_y_continuous(labels = function(x) paste0(x, "%"),
                        limits = c(0, 105), breaks = seq(0, 100, 25)) +
-    labs(title = tag, x = NULL, y = ylab) +
+    labs(tag = tag, title = disease, x = NULL, y = ylab) +
     theme_bw(11) +
-    theme(plot.title = element_text(face = "bold", size = 13),
+    theme(plot.tag = element_text(face = "bold", size = 13),
+          plot.tag.position = c(0, 1),
+          plot.title = element_text(face = "bold", size = 11, hjust = .5),
           axis.text.x  = if (x_axis) element_text(size = 8.5) else element_blank(),
           axis.ticks.x = if (x_axis) element_line() else element_blank(),
           axis.text.y  = if (y_axis) element_text() else element_blank(),
@@ -167,15 +170,19 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag) {
 }
 
 # strip = NULL blanks the arm strip on the lower blocks: C and D repeat B's columns.
-row_burden <- function(o, tag, ylab = NULL, strip = FALSE, x_axis = FALSE) {
+# The disease titles ride on the top burden row only: C and D sit directly beneath B and
+# inherit its columns, so repeating the names would just be noise.
+row_burden <- function(o, tag, ylab = NULL, strip = FALSE, x_axis = FALSE, name = FALSE) {
   st <- if (strip) TRUE else NULL
-  c_blk <- burden(subset(chik, outcome == o), st, ylab, x_axis, TRUE, tag)
+  c_blk <- burden(subset(chik, outcome == o), st, ylab, x_axis, TRUE, tag,
+                  if (name) "Chikungunya" else NULL)
   if (o == "Cumulative deaths") return(list(c = c_blk, m = NULL))     # MAYV: CFR fixed at 0
-  list(c = c_blk, m = burden(subset(mayv, outcome == o), st, NULL, x_axis, FALSE, NULL))
+  list(c = c_blk, m = burden(subset(mayv, outcome == o), st, NULL, x_axis, FALSE, NULL,
+                             if (name) "Mayaro" else NULL))
 }
 
 YLAB <- "Cumulative burden (% of no vaccination)"
-rB <- row_burden("Cumulative DALYs",  "B", NULL, strip = TRUE)
+rB <- row_burden("Cumulative DALYs",  "B", NULL, strip = TRUE, name = TRUE)
 rC <- row_burden("Cumulative deaths", "C")
 rD <- row_burden("Healthcare cost",   "D", NULL, x_axis = TRUE)
 
@@ -244,17 +251,22 @@ if (!all(file.exists("CHIKV_ca_owsa.rds", "MAYV_ca_owsa.rds"))) {
 # 4. Master figure: A epidemic curves, B DALYs, C deaths, D healthcare cost.
 # The disease labels sit once, on the strips over row A; B-D inherit those columns.
 # ------------------------------------------------------------
-pA_c <- pE_c + labs(title = "A") + theme(plot.title = element_text(face = "bold", size = 13))
-
+pA_c <- pE_c + labs(tag = "A") +
+  theme(plot.tag = element_text(face = "bold", size = 13), plot.tag.position = c(0, 1))
 # Both epicurve panels carry identical keys, so MAYV's copy is dropped at the SCALE
 # level -- a theme(legend.position = "none") would be undone by the shared `&` theme.
 pA_m <- pE_m + guides(fill = "none", colour = "none", linetype = "none")
 
-master <- ((pA_c + pA_m + plot_layout(widths = c(2, 1)) &
-              theme(legend.position = "bottom"))) /
-          with_ylab(burden_rows) +
-  plot_layout(heights = c(1.5, 3.3))
+# equal halves: the Mayaro curve needs as much room to be read as the Chikungunya one
+row_A <- pA_c + pA_m + plot_layout(widths = c(1, 1)) &
+  theme(legend.position = "bottom")
 
-ggsave("combined_master.png", master, width = 11, height = 14, dpi = 150)
-ggsave("combined_master.pdf", master, width = 11, height = 14)
+# the burden panels are two bars wide, so the block is inset rather than stretched
+row_BCD <- plot_spacer() + with_ylab(burden_rows) + plot_spacer() +
+  plot_layout(widths = c(.08, 1, .08))
+
+master <- row_A / row_BCD + plot_layout(heights = c(1.5, 2.4))
+
+ggsave("combined_master.png", master, width = 11, height = 11.5, dpi = 150)
+ggsave("combined_master.pdf", master, width = 11, height = 11.5)
 cat("Saved combined_master.png / .pdf (A epicurves, B DALYs, C deaths, D healthcare cost).\n")
