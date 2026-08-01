@@ -424,6 +424,13 @@ p_resid <- ggplot(resid, aes(scenario, med, fill = scenario)) +
         panel.grid.minor = element_blank())
 print(p_resid)
 ggsave("CHIKV_ca_residual_burden.png", p_resid, width = 6.4, height = 7.2, dpi = 130)
+# % reduction from no vaccination, the complement of the residual columns. The interval
+# BOUNDS SWAP: a draw with a high residual burden is a draw with a small reduction, so
+# red_lo is 100 - hi and red_hi is 100 - lo. Taking 100 - lo as the lower bound would
+# report the interval backwards.
+resid$red_med <- 100 - resid$med
+resid$red_lo  <- 100 - resid$hi
+resid$red_hi  <- 100 - resid$lo
 write_xlsx(list(residual_burden_pct = resid), "CHIKV_ca_residual_burden.xlsx")
 saveRDS(resid, "CHIKV_ca_residual_burden.rds")     # for the merged CHIKV|MAYV figure
 cat("Saved CHIKV_ca_residual_burden.png and .xlsx (pre-outbreak vaccination, 2025-W40,\n",

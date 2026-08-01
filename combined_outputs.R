@@ -38,7 +38,7 @@ ARMS      <- c("Disease-blocking", "Disease + infection blocking")
 OUT_LV    <- c("Cumulative DALYs", "Cumulative deaths", "Healthcare cost")  # as stored in the .rds
 # Strip text for the B/C/D rows -- EDIT HERE to rename them. Must stay in OUT_LV order;
 # the .rds names above are the lookup keys and must not be changed.
-OUT_LAB   <- c("DALYs", "deaths", "Healthcare costs")
+OUT_LAB   <- c("DALYs", "Deaths", "Healthcare costs")
 FILL      <- c("No vaccination" = "grey60", "Vaccination" = "#4e79a7")
 scen_cols <- c("No vaccination" = "grey55", "Disease-blocking" = "#4393c3",
                "Disease + infection blocking" = "#d6604d")
