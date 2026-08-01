@@ -151,11 +151,13 @@ mayv$outcome <- factor(as.character(mayv$outcome), levels = OUT_LV)   # deaths k
 mayv$arm     <- factor(ARMS[1], levels = ARMS[1])                     # empty level
 chik$arm     <- factor(as.character(chik$arm), levels = ARMS)
 
-burden <- function(d, strip, ylab, x_axis, y_axis, tag) {
+burden <- function(d, strip, ylab, x_axis, y_axis, tag, row_strip = FALSE) {
   ggplot(d, aes(scenario, med, fill = scenario)) +
     geom_col(width = .6) +
     geom_errorbar(aes(ymin = lo, ymax = hi), width = .15, linewidth = .35) +
-    facet_grid(~ arm, drop = FALSE) +
+    # switch = "y" puts the outcome strip on the LEFT, outside the axis, so the rows
+    # are named in grey boxes and the block keeps one shared y title
+    facet_grid(outcome ~ arm, drop = FALSE, switch = if (row_strip) "y" else NULL) +
     scale_fill_manual(values = FILL, name = NULL) +
     scale_y_continuous(labels = function(x) paste0(x, "%"),
                        limits = c(0, 105), breaks = seq(0, 100, 25)) +
@@ -171,19 +173,27 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag) {
           axis.ticks.x = if (x_axis) element_line() else element_blank(),
           axis.text.y  = if (y_axis) element_text() else element_blank(),
           axis.ticks.y = if (y_axis) element_line() else element_blank(),
-          strip.text   = if (is.null(strip)) element_blank()
+          strip.text.x = if (is.null(strip)) element_blank()
                          else element_text(face = "bold", size = 9),
+          strip.text.y.left = element_text(face = "bold", size = 9, angle = 90),
+          strip.text.y = element_blank(),           # MAYV block: named by the CHIKV strip
+          strip.placement = "outside",
           panel.grid.minor = element_blank(),
           # the bars are already named on the x axis, so a fill legend adds nothing
           legend.position = "none")
 }
 
 # strip = NULL blanks the arm strip on the lower blocks: C and D repeat B's columns.
-row_burden <- function(o, tag, ylab = NULL, strip = FALSE, x_axis = FALSE) {
+# drop = FALSE is needed for the ARM dimension (MAYV lacks the infection-blocking level),
+# but it would also render all three outcome rows in every block, so the outcome factor is
+# reduced to the single level this row shows.
+one_row <- function(d, o) { d <- subset(d, outcome == o); d$outcome <- droplevels(d$outcome); d }
+
+row_burden <- function(o, tag, strip = FALSE, x_axis = FALSE) {
   st <- if (strip) TRUE else NULL
-  c_blk <- burden(subset(chik, outcome == o), st, ylab, x_axis, TRUE, tag)
+  c_blk <- burden(one_row(chik, o), st, NULL, x_axis, TRUE, tag, row_strip = TRUE)
   if (o == "Cumulative deaths") return(list(c = c_blk, m = NULL))     # MAYV: CFR fixed at 0
-  list(c = c_blk, m = burden(subset(mayv, outcome == o), st, NULL, x_axis, FALSE, NULL))
+  list(c = c_blk, m = burden(one_row(mayv, o), st, NULL, x_axis, FALSE, NULL))
 }
 
 # Disease names head the whole B-D block, above the panel letters. They sit on their own
@@ -194,10 +204,10 @@ head_lab <- function(txt) ggplot() + labs(title = txt) + theme_void() +
                                   margin = margin(t = 0, b = 2)),
         plot.margin = margin(0, 0, 0, 0))
 
-YLAB <- "% of no vaccination"
-rB <- row_burden("Cumulative DALYs",  "B", "Cumulative DALYs", strip = TRUE)
-rC <- row_burden("Cumulative deaths", "C", "Cumulative deaths")
-rD <- row_burden("Healthcare cost",   "D", "Healthcare cost", x_axis = TRUE)
+YLAB <- "Cumulative burden (% of no vaccination)"
+rB <- row_burden("Cumulative DALYs",  "B", strip = TRUE)
+rC <- row_burden("Cumulative deaths", "C")
+rD <- row_burden("Healthcare cost",   "D", x_axis = TRUE)
 
 # standalone version of the burden figure, three outcomes stacked
 burden_rows <- (head_lab("Chikungunya") + head_lab("Mayaro") +
