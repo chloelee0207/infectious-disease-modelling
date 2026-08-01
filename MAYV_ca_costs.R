@@ -123,6 +123,19 @@ cost_of <- function(pd) {
                      non_hospitalised = nonh, entered_subacute = n_sub,
                      entered_chronic = n_chr))
 }
+# ------------------------------------------------------------
+# CURRENCY. Unit costs are 2019 BRL; results are ALSO reported in 2025 US$.
+# Two steps, in this order:
+#   (1) inflate 2019 BRL -> 2025 BRL with the IPCA subgroup for HEALTH AND PERSONAL
+#       CARE (IBGE, group 6, c315 = 7660; SIDRA t/1419 for 2019, t/7060 from 2020),
+#       chained from the monthly rates and compared as ANNUAL AVERAGES;
+#   (2) divide by the 2025 ANNUAL-AVERAGE exchange rate.
+# Kept identical to CHIKV_ca_costs.R so the two pathogens are directly comparable.
+# ------------------------------------------------------------
+IPCA_HEALTH_19_25  <- 1.40093   # IBGE: 2019 annual avg -> 2025 annual avg (+40.09%)
+USD_BRL_2025       <- 5.5855    # BCB PTAX venda, mean of the 252 business days in 2025
+BRL2019_TO_USD2025 <- IPCA_HEALTH_19_25 / USD_BRL_2025
+
 COMP <- c("hosp_inpatient", "out_acute", "out_subacute", "out_chronic", "total_direct_medical")
 cost_pd  <- setNames(lapply(scen_names, function(s) cost_of(G$per_draw[[s]])$cost),  scen_names)
 count_pd <- setNames(lapply(scen_names, function(s) cost_of(G$per_draw[[s]])$count), scen_names)
@@ -136,8 +149,8 @@ fmt <- function(x, dp = 0) sprintf("%s (%s - %s)",
         formatC(round(x[2], dp), big.mark = ",", format = "f", digits = dp),
         formatC(round(x[3], dp), big.mark = ",", format = "f", digits = dp))
 
-sh_costs <- do.call(rbind, lapply(scen_names, function(s) {
-  m <- cost_pd[[s]][ok, , drop = FALSE]
+cost_table <- function(mult) do.call(rbind, lapply(scen_names, function(s) {
+  m <- cost_pd[[s]][ok, , drop = FALSE] * mult
   data.frame(scenario = s,
              hosp_inpatient       = fmt(q3(m[, "hosp_inpatient"])),
              out_acute            = fmt(q3(m[, "out_acute"])),
@@ -145,6 +158,8 @@ sh_costs <- do.call(rbind, lapply(scen_names, function(s) {
              out_chronic          = fmt(q3(m[, "out_chronic"])),
              TOTAL_direct_medical = fmt(q3(m[, "total_direct_medical"])),
              stringsAsFactors = FALSE) }))
+sh_costs     <- cost_table(1)                       # 2019 BRL, as costed
+sh_costs_usd <- cost_table(BRL2019_TO_USD2025)      # 2025 US$
 
 sh_counts <- do.call(rbind, lapply(scen_names, function(s) {
   m <- count_pd[[s]][ok, , drop = FALSE]
@@ -160,20 +175,22 @@ sh_counts <- do.call(rbind, lapply(scen_names, function(s) {
 # averted vs baseline, paired per draw (so the UI keeps the correlation)
 base <- cost_pd[["No vaccine (baseline)"]]
 vac  <- setdiff(scen_names, "No vaccine (baseline)")
-sh_averted <- do.call(rbind, lapply(vac, function(s) {
+averted_table <- function(mult) do.call(rbind, lapply(vac, function(s) {
   a  <- (base - cost_pd[[s]])[ok, , drop = FALSE]
   bs <- base[ok, , drop = FALSE]
   dz <- G$per_draw[[s]][ok, "doses"]
   data.frame(scenario = s,
-             hosp_inpatient       = fmt(q3(a[, "hosp_inpatient"])),
-             out_acute            = fmt(q3(a[, "out_acute"])),
-             out_subacute         = fmt(q3(a[, "out_subacute"])),
-             out_chronic          = fmt(q3(a[, "out_chronic"])),
-             TOTAL_cost_averted   = fmt(q3(a[, "total_direct_medical"])),
+             hosp_inpatient       = fmt(q3(a[, "hosp_inpatient"] * mult)),
+             out_acute            = fmt(q3(a[, "out_acute"] * mult)),
+             out_subacute         = fmt(q3(a[, "out_subacute"] * mult)),
+             out_chronic          = fmt(q3(a[, "out_chronic"] * mult)),
+             TOTAL_cost_averted   = fmt(q3(a[, "total_direct_medical"] * mult)),
              pct_of_baseline      = fmt(q3(100*a[, "total_direct_medical"] /
                                             bs[, "total_direct_medical"]), 1),
-             cost_averted_per_dose= fmt(q3(a[, "total_direct_medical"] / dz), 2),
+             cost_averted_per_dose= fmt(q3(a[, "total_direct_medical"] * mult / dz), 2),
              stringsAsFactors = FALSE) }))
+sh_averted     <- averted_table(1)                     # 2019 BRL
+sh_averted_usd <- averted_table(BRL2019_TO_USD2025)    # 2025 US$
 
 # ------------------------------------------------------------
 # 5. Unit-cost audit: input vs fitted distribution vs realised draws
@@ -194,6 +211,10 @@ sh_percase <- data.frame(
               "public_share*public_stay_cost + (1-public_share)*private_stay_cost"),
   cost_per_case_BRL2019 = c(fmt(q3(pc_acute), 2), fmt(q3(pc_sub), 2),
                             fmt(q3(pc_chr), 2), fmt(q3(pc_hosp), 2)),
+  cost_per_case_USD2025 = c(fmt(q3(pc_acute*BRL2019_TO_USD2025), 2),
+                            fmt(q3(pc_sub  *BRL2019_TO_USD2025), 2),
+                            fmt(q3(pc_chr  *BRL2019_TO_USD2025), 2),
+                            fmt(q3(pc_hosp *BRL2019_TO_USD2025), 2)),
   stringsAsFactors = FALSE)
 
 # ------------------------------------------------------------
@@ -254,14 +275,15 @@ sh_check <- data.frame(
 # 9. Notes + write
 # ------------------------------------------------------------
 sh_notes <- data.frame(item = c(
- "Disease", "Currency", "Unit cost source", "BORROWED-COST CAVEAT", "Treatment regimen source",
+ "Disease", "Currency", "Currency conversion", "Unit cost source", "BORROWED-COST CAVEAT", "Treatment regimen source",
  "Epidemic source", "Evaluation window", "Conditioning", "Draws",
  "Denominator (outpatient)", "Denominator (inpatient)", "Phase counts",
  "Deaths", "Hospitalisation cost", "Unused input",
  "Why medians do not add up", "Averted costs", "Scope"),
  detail = c(
  "Mayaro virus (MAYV), Caldas Novas, hypothetical outbreak.",
- "2019 Brazilian reais (BRL). No inflation or PPP adjustment applied.",
+ "Costed in 2019 Brazilian reais (BRL); every cost sheet is also given in 2025 US$.",
+ sprintf("2019 BRL -> 2025 BRL by the IPCA health and personal care subgroup (IBGE group 6, annual average 2019 vs annual average 2025, factor %.5f, +%.2f%%), then / %.4f, the 2025 annual-average PTAX selling rate (BCB SGS series 1, 252 business days). Combined multiplier %.6f. No PPP adjustment.", IPCA_HEALTH_19_25, 100*(IPCA_HEALTH_19_25-1), USD_BRL_2025, BRL2019_TO_USD2025),
  "Goncalves et al. 2024, Rev Bras Epidemiol 27:e240026 (Rio de Janeiro, 2019) -- a CHIKUNGUNYA study.",
  "There is NO published MAYV cost-of-illness study. CHIKV unit costs and regimens are BORROWED as the closest alphavirus proxy (same acute-arthralgia care pathway). MAYV is generally milder, so these are a CHIKV-equivalent UPPER bound, not measured MAYV costs.",
  "Brazilian MoH / SES-RJ chikungunya flowchart, 10/01/19.",
@@ -282,7 +304,8 @@ sh_notes <- data.frame(item = c(
 
 write_xlsx(list(notes = sh_notes, unit_costs = sh_units, cost_per_case = sh_percase,
                 case_counts = sh_counts, costs_by_scenario = sh_costs,
-                cost_averted = sh_averted,
+                costs_by_scenario_USD2025 = sh_costs_usd,
+                cost_averted = sh_averted, cost_averted_USD2025 = sh_averted_usd,
                 audit_point_estimate = sh_audit, goncalves_check = sh_check),
            "MAYV_ca_costs.xlsx")
 saveRDS(list(cost_pd = cost_pd, count_pd = count_pd, outbreak = ok,
