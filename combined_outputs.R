@@ -145,7 +145,7 @@ mayv$outcome <- factor(as.character(mayv$outcome), levels = OUT_LV)   # deaths k
 mayv$arm     <- factor(ARMS[1], levels = ARMS[1])                     # empty level
 chik$arm     <- factor(as.character(chik$arm), levels = ARMS)
 
-burden <- function(d, strip, ylab, x_axis, y_axis, tag, disease = NULL) {
+burden <- function(d, strip, ylab, x_axis, y_axis, tag) {
   ggplot(d, aes(scenario, med, fill = scenario)) +
     geom_col(width = .6) +
     geom_errorbar(aes(ymin = lo, ymax = hi), width = .15, linewidth = .35) +
@@ -153,11 +153,13 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag, disease = NULL) {
     scale_fill_manual(values = FILL, name = NULL) +
     scale_y_continuous(labels = function(x) paste0(x, "%"),
                        limits = c(0, 105), breaks = seq(0, 100, 25)) +
-    labs(tag = tag, title = disease, x = NULL, y = ylab) +
+    labs(tag = tag, x = NULL, y = ylab) +
     theme_bw(11) +
     theme(plot.tag = element_text(face = "bold", size = 13),
           plot.tag.position = c(0, 1),
-          plot.title = element_text(face = "bold", size = 11, hjust = .5),
+          # top margin gives each panel letter its own band, so B, C and D stay legible
+          # instead of being squeezed against the row above
+          plot.margin = margin(t = 30, r = 5.5, b = 5.5, l = 5.5),
           axis.text.x  = if (x_axis) element_text(size = 8.5) else element_blank(),
           axis.ticks.x = if (x_axis) element_line() else element_blank(),
           axis.text.y  = if (y_axis) element_text() else element_blank(),
@@ -170,26 +172,31 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag, disease = NULL) {
 }
 
 # strip = NULL blanks the arm strip on the lower blocks: C and D repeat B's columns.
-# The disease titles ride on the top burden row only: C and D sit directly beneath B and
-# inherit its columns, so repeating the names would just be noise.
-row_burden <- function(o, tag, ylab = NULL, strip = FALSE, x_axis = FALSE, name = FALSE) {
+row_burden <- function(o, tag, ylab = NULL, strip = FALSE, x_axis = FALSE) {
   st <- if (strip) TRUE else NULL
-  c_blk <- burden(subset(chik, outcome == o), st, ylab, x_axis, TRUE, tag,
-                  if (name) "Chikungunya" else NULL)
+  c_blk <- burden(subset(chik, outcome == o), st, ylab, x_axis, TRUE, tag)
   if (o == "Cumulative deaths") return(list(c = c_blk, m = NULL))     # MAYV: CFR fixed at 0
-  list(c = c_blk, m = burden(subset(mayv, outcome == o), st, NULL, x_axis, FALSE, NULL,
-                             if (name) "Mayaro" else NULL))
+  list(c = c_blk, m = burden(subset(mayv, outcome == o), st, NULL, x_axis, FALSE, NULL))
 }
 
+# Disease names head the whole B-D block, above the panel letters. They sit on their own
+# void row rather than as titles on row B so that they read before the B, and so C and D
+# inherit them without the names being repeated three times.
+head_lab <- function(txt) ggplot() + labs(title = txt) + theme_void() +
+  theme(plot.title = element_text(face = "bold", size = 12, hjust = .5))
+
 YLAB <- "Cumulative burden (% of no vaccination)"
-rB <- row_burden("Cumulative DALYs",  "B", NULL, strip = TRUE, name = TRUE)
+rB <- row_burden("Cumulative DALYs",  "B", NULL, strip = TRUE)
 rC <- row_burden("Cumulative deaths", "C")
 rD <- row_burden("Healthcare cost",   "D", NULL, x_axis = TRUE)
 
 # standalone version of the burden figure, three outcomes stacked
-burden_rows <- (rB$c + rB$m + plot_layout(widths = c(2, 1))) /
+burden_rows <- (head_lab("Chikungunya") + head_lab("Mayaro") +
+                  plot_layout(widths = c(2, 1))) /
+               (rB$c + rB$m + plot_layout(widths = c(2, 1))) /
                (rC$c + plot_spacer() + plot_layout(widths = c(2, 1))) /
-               (rD$c + rD$m + plot_layout(widths = c(2, 1)))
+               (rD$c + rD$m + plot_layout(widths = c(2, 1))) +
+               plot_layout(heights = c(.1, 1, 1, 1))
 
 # One rotated y title for the whole B-D block. Put on a single row it would be taller
 # than that row and get clipped, so it is attached to the wrapped block instead.
@@ -265,8 +272,8 @@ row_A <- pA_c + pA_m + plot_layout(widths = c(1, 1)) &
 row_BCD <- plot_spacer() + with_ylab(burden_rows) + plot_spacer() +
   plot_layout(widths = c(.08, 1, .08))
 
-master <- row_A / row_BCD + plot_layout(heights = c(1.5, 2.4))
+master <- row_A / row_BCD + plot_layout(heights = c(1.4, 2.6))
 
-ggsave("combined_master.png", master, width = 11, height = 11.5, dpi = 150)
-ggsave("combined_master.pdf", master, width = 11, height = 11.5)
+ggsave("combined_master.png", master, width = 11, height = 12.5, dpi = 150)
+ggsave("combined_master.pdf", master, width = 11, height = 12.5)
 cat("Saved combined_master.png / .pdf (A epicurves, B DALYs, C deaths, D healthcare cost).\n")
