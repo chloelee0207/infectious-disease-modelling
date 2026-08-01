@@ -129,14 +129,15 @@ epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = 4) {
     theme(legend.position = "bottom", strip.text = element_text(face = "bold", size = 10),
           # the four keys overrun an 11in figure on one line, so the scenario guide
           # wraps to two rows rather than being shrunk until it is unreadable
-          legend.text = element_text(size = 9), legend.key.size = unit(.9, "lines"),
+          legend.text = element_text(size = 10), legend.key.size = unit(.9, "lines"),
+          axis.text = element_text(size = 11), axis.title = element_text(size = 12),
           legend.justification = "center",
           panel.grid.minor = element_blank())
 }
 
 pE_c <- epicurve(epi_ch, "Chikungunya", ann_ch, ch_dose, ch_dose + 10, "Predicted symptomatic cases")
 # the MAYV panel is a third of the width, so its annotation needs a smaller size
-pE_m <- epicurve(epi_mv, mayv_lab, ann_mv, mv_dose, mv_dose + mv_len, NULL, ann_size = 3)
+pE_m <- epicurve(epi_mv, mayv_lab, ann_mv, mv_dose, mv_dose + mv_len, NULL)
 
 p_epi <- pE_c + pE_m + plot_layout(ncol = 2, widths = c(2, 1), guides = "collect") &
   theme(legend.position = "bottom")
@@ -163,22 +164,22 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag, row_strip = FALSE) {
     scale_y_continuous(labels = function(x) paste0(x, "%"),
                        limits = c(0, 105), breaks = seq(0, 100, 25)) +
     labs(tag = tag, x = NULL, y = ylab) +
-    theme_bw(11) +
+    theme_bw(14) +
     theme(plot.tag = element_text(face = "bold", size = 13),
           plot.tag.position = c(0, 1),
           axis.title.y = element_text(size = 10),
           # top margin gives each panel letter its own band, so B, C and D stay legible
           # instead of being squeezed against the row above
           plot.margin = margin(t = 22, r = 5.5, b = 5.5, l = 5.5),
-          axis.text.x  = if (x_axis) element_text(size = 8.5) else element_blank(),
+          axis.text.x  = if (x_axis) element_text(size = 11) else element_blank(),
           axis.ticks.x = if (x_axis) element_line() else element_blank(),
           axis.text.y  = if (y_axis) element_text() else element_blank(),
           axis.ticks.y = if (y_axis) element_line() else element_blank(),
           strip.text.x = if (is.null(strip)) element_blank()
-                         else element_text(face = "bold", size = 9),
+                         else element_text(face = "bold", size = 10),
           # the outcome strip rides on the RIGHT-hand (MAYV) block only, so it sits at
           # the far edge of the figure and cannot collide with the B/C/D letters
-          strip.text.y = if (row_strip) element_text(face = "bold", size = 9, angle = -90)
+          strip.text.y = if (row_strip) element_text(face = "bold", size = 10, angle = -90)
                          else element_blank(),
           panel.grid.minor = element_blank(),
           # the bars are already named on the x axis, so a fill legend adds nothing
@@ -236,7 +237,7 @@ burden_rows <- (head_lab("Chikungunya") + head_lab("Mayaro") +
 # than that row and get clipped, so it is attached to the wrapped block instead.
 with_ylab <- function(blk) wrap_elements(patchworkGrob(blk)) +
   labs(tag = YLAB) +
-  theme(plot.tag = element_text(size = 11, angle = 90), plot.tag.position = "left",
+  theme(plot.tag = element_text(size = 13, angle = 90), plot.tag.position = "left",
         plot.margin = margin(t = 0, r = 0, b = 0, l = 0))
 
 p_burden <- with_ylab(burden_rows)
@@ -300,8 +301,14 @@ pA_c <- pE_c + labs(tag = "A") +
 pA_m <- pE_m + guides(fill = "none", colour = "none", linetype = "none")
 
 # equal halves: the Mayaro curve needs as much room to be read as the Chikungunya one
-row_A <- pA_c + pA_m + plot_layout(widths = c(1, 1)) &
-  theme(legend.position = "bottom", plot.margin = margin(t = 5.5, r = 5.5, b = 2, l = 5.5))
+# guides = "collect" lifts the legend out of the Chikungunya panel and gives it its own
+# strip across the bottom of BOTH panels, so it is centred on the row rather than
+# left-aligned under the first plot. Note that a collected guide is drawn from the
+# PATCHWORK's theme, so its size must be set here with `&`, not inside epicurve().
+row_A <- pA_c + pA_m + plot_layout(widths = c(1, 1), guides = "collect") &
+  theme(legend.position = "bottom", legend.justification = "center",
+        legend.text = element_text(size = 11), legend.key.size = unit(1.1, "lines"),
+        plot.margin = margin(t = 5.5, r = 5.5, b = 2, l = 5.5))
 
 # the burden panels are two bars wide, so the block is inset rather than stretched
 row_BCD <- plot_spacer() + with_ylab(burden_rows) + plot_spacer() +
@@ -309,6 +316,6 @@ row_BCD <- plot_spacer() + with_ylab(burden_rows) + plot_spacer() +
 
 master <- row_A / row_BCD + plot_layout(heights = c(1.3, 2.7))
 
-ggsave("combined_master.png", master, width = 11, height = 12.5, dpi = 150)
+ggsave("combined_master.png", master, width = 13, height = 12.5, dpi = 150)
 ggsave("combined_master.pdf", master, width = 11, height = 12.5)
 cat("Saved combined_master.png / .pdf (A epicurves, B DALYs, C deaths, D healthcare cost).\n")
