@@ -456,11 +456,20 @@ if (!file.exists(mayv_epi_file)) {
 }
 
 # ------------------------------------------------------------
-# 8. Residual burden under each vaccination scenario, as a % of no vaccination.
-# Computed per draw (scenario / baseline) then summarised, so the UI keeps the
-# baseline-scenario pairing. Hospitalisation cost is read from the cost layer, which
-# runs after this script; the panel is skipped if it has not been produced yet.
+# 8. Residual burden under PRE-OUTBREAK vaccination (2025-W40), as a % of no
+# vaccination. Two bars per panel: unvaccinated counterfactual vs vaccinated.
+# Ratios are formed per draw (scenario / baseline) and then summarised, so the UI
+# keeps the baseline-scenario pairing instead of dividing two independent medians.
+#
+# Hospitalisation cost is computed from hospitalisation COUNTS. The per-case
+# hospitalisation cost is sampled per draw but is the SAME value for the baseline and
+# the vaccinated arm within that draw, so it cancels exactly in the ratio -- the cost
+# percentage is identical to the count percentage (verified to machine precision).
+# This keeps the panel independent of CHIKV_ca_costs.R, which runs after this script.
 # ------------------------------------------------------------
+RESID_TIMING <- "pre-outbreak"                    # 2025-W40, the only timing shown
+stopifnot(RESID_TIMING %in% names(timings))
+
 pct_of_base <- function(num, den) { r <- 100 * num / den; r[!is.finite(r)] <- NA; r }
 res_rows <- list()
 add_res <- function(outcome, scen, arm, v) res_rows[[length(res_rows)+1]] <<- data.frame(
@@ -468,47 +477,39 @@ add_res <- function(outcome, scen, arm, v) res_rows[[length(res_rows)+1]] <<- da
   med = median(v, na.rm = TRUE), lo = quantile(v, .025, na.rm = TRUE),
   hi = quantile(v, .975, na.rm = TRUE), row.names = NULL)
 
-cost_pd <- if (file.exists("CHIKV_ca_costs.rds")) readRDS("CHIKV_ca_costs.rds")$cost_pd else NULL
-if (is.null(cost_pd))
-  cat("NOTE: CHIKV_ca_costs.rds not found -- hospitalisation-cost panel omitted.\n",
-      "      Run CHIKV_ca_costs.R once, then re-run this script to include it.\n", sep = "")
-
+resid_outcomes <- c(daly = "Cumulative DALYs", deaths = "Cumulative deaths",
+                    hospitalisations = "Hospitalisation cost")
+bl <- bmat[["No vaccine (baseline)"]]
 for (arm in arm_names) {
-  add_res("Cumulative DALYs",       "No vaccination", arm, 100)
-  add_res("Cumulative deaths",      "No vaccination", arm, 100)
-  if (!is.null(cost_pd)) add_res("Hospitalisation cost", "No vaccination", arm, 100)
-  for (tn in names(timings)) {
-    nm <- paste0(tn, " | ", arm)
-    add_res("Cumulative DALYs",  tn, arm, pct_of_base(bmat[[nm]][,"daly"],   bmat[["No vaccine (baseline)"]][,"daly"]))
-    add_res("Cumulative deaths", tn, arm, pct_of_base(bmat[[nm]][,"deaths"], bmat[["No vaccine (baseline)"]][,"deaths"]))
-    if (!is.null(cost_pd))
-      add_res("Hospitalisation cost", tn, arm,
-              pct_of_base(cost_pd[[nm]][,"hosp_inpatient"], cost_pd[["No vaccine (baseline)"]][,"hosp_inpatient"]))
+  nm <- paste0(RESID_TIMING, " | ", arm)
+  for (o in names(resid_outcomes)) {
+    add_res(resid_outcomes[[o]], "No vaccination", arm, 100)
+    add_res(resid_outcomes[[o]], "Vaccination",    arm, pct_of_base(bmat[[nm]][, o], bl[, o]))
   }
 }
 resid <- do.call(rbind, res_rows)
-lv <- c("No vaccination", names(timings))
-resid$scenario <- factor(resid$scenario, levels = lv)
+resid$scenario <- factor(resid$scenario, levels = c("No vaccination", "Vaccination"))
 resid$arm      <- factor(resid$arm, levels = arm_names)
-resid$outcome  <- factor(resid$outcome,
-  levels = c("Cumulative DALYs", "Cumulative deaths", "Hospitalisation cost"))
+resid$outcome  <- factor(resid$outcome, levels = unname(resid_outcomes))
 
 p_resid <- ggplot(resid, aes(scenario, med, fill = scenario)) +
-  geom_col(width = .7) +
-  geom_errorbar(aes(ymin = lo, ymax = hi), width = .18, linewidth = .35) +
+  geom_col(width = .6) +
+  geom_errorbar(aes(ymin = lo, ymax = hi), width = .15, linewidth = .35) +
   facet_grid(outcome ~ arm) +
-  scale_fill_manual(values = setNames(c("grey60", "#e15759", "#4e79a7", "#59a14f", "#b07aa1")[seq_along(lv)], lv),
-                    name = "Vaccination scenario") +
+  scale_fill_manual(values = c("No vaccination" = "grey60", "Vaccination" = "#4e79a7"),
+                    name = NULL) +
   scale_y_continuous(labels = function(x) paste0(x, "%"), limits = c(0, NA)) +
   labs(x = NULL, y = "Cumulative burden (% of no vaccination)") +
   theme_bw(11) +
-  theme(axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
+  theme(axis.text.x = element_text(size = 9), legend.position = "bottom",
         strip.text = element_text(face = "bold", size = 9),
-        legend.position = "bottom", panel.grid.minor = element_blank())
+        panel.grid.minor = element_blank())
 print(p_resid)
-ggsave("CHIKV_ca_residual_burden.png", p_resid, width = 9, height = 7.5, dpi = 130)
+ggsave("CHIKV_ca_residual_burden.png", p_resid, width = 6.4, height = 7.2, dpi = 130)
 write_xlsx(list(residual_burden_pct = resid), "CHIKV_ca_residual_burden.xlsx")
-cat("Saved CHIKV_ca_residual_burden.png and .xlsx (burden as % of no vaccination).\n")
+saveRDS(resid, "CHIKV_ca_residual_burden.rds")     # for the merged CHIKV|MAYV figure
+cat("Saved CHIKV_ca_residual_burden.png and .xlsx (pre-outbreak vaccination, 2025-W40,\n",
+    "     burden as % of no vaccination).\n", sep = "")
 
 cat(sprintf("Saved figures: epicurve_{%s}, averted_mc, fit_observed, daly_composition, daly_averted, nnv\n",
             paste(gsub("[^a-z0-9]+","_",tolower(names(timings))), collapse=", ")))
