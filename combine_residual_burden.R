@@ -10,10 +10,11 @@
 # Reads the summarised frames written by the two outputs scripts, so it does no
 # arithmetic of its own -- every value here is already per-draw propagated.
 #
-# The Mayaro deaths cell is deliberately kept but left empty: MAYV_ZERO_DEATHS = TRUE
-# fixes the MAYV CFR at 0, so the ratio is undefined rather than zero. Dropping the row
-# would misalign the two blocks, and filling it would assert a number that does not
-# exist, so it carries an explicit "not applicable" note instead.
+# The Mayaro deaths cell is blank. MAYV_ZERO_DEATHS = TRUE fixes the MAYV CFR at 0, so
+# that ratio is undefined rather than zero. The facet level is kept (drop = FALSE) only
+# to hold the row grid aligned with Chikungunya; the panel grob is then deleted from the
+# assembled gtable, so no box, border or gridlines are drawn. The right-hand
+# "Cumulative deaths" strip stays, because it labels that row for the Chikungunya block.
 #
 # Run order: CHIKV_ca_outputs.R and MAYV_ca_outputs.R -> this file
 # ============================================================
@@ -53,28 +54,36 @@ p_chik <- panel(chik, "A  Chikungunya") +
   facet_grid(outcome ~ arm) +
   theme(strip.text.y = element_blank())          # row labels live on the MAYV block
 
-# drop = FALSE keeps the empty deaths row so the two blocks share a row grid
 p_mayv <- panel(mayv, "B  Mayaro") +
   facet_grid(outcome ~ arm, drop = FALSE) +
-  geom_text(data = data.frame(outcome = factor("Cumulative deaths", levels = OUT_LV),
-                              arm = factor("Disease-blocking"),
-                              scenario = factor("No vaccination", levels = names(FILL))),
-            aes(x = 1.5, y = 52, label = "Not applicable\n(CFR fixed at 0)"),
-            inherit.aes = FALSE, size = 2.9, colour = "grey40",
-            fontface = "italic", lineheight = .95) +
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
         strip.text.y = element_text(face = "bold", size = 9))
 
 # widths 2:1 so every panel column is the same physical width
-p <- p_chik + p_mayv +
-  plot_layout(ncol = 2, widths = c(2, 1), guides = "collect") &
-  theme(legend.position = "bottom")
-p <- wrap_elements(p) +
+# suppressWarnings: the empty deaths facet has no data for ggplot to take a range over.
+p <- suppressWarnings(patchworkGrob(
+  p_chik + p_mayv + plot_layout(ncol = 2, widths = c(2, 1), guides = "collect") &
+    theme(legend.position = "bottom")))
+
+# Blank the Mayaro deaths panel. The Mayaro block is the only sub-gtable with a single
+# facet column (3 panels vs Chikungunya's 6); within it facet_grid names the rows
+# panel-1-<row> in OUT_LV order, so deaths is panel-1-2.
+blk <- which(vapply(p$grobs, function(gr) inherits(gr, "gtable") &&
+                      sum(grepl("^panel-", gr$layout$name)) == 3L, logical(1)))
+stopifnot(length(blk) == 1)
+mg <- p$grobs[[blk]]
+j  <- which(mg$layout$name == "panel-1-2")
+stopifnot(length(j) == 1)
+mg$grobs[[j]] <- grid::nullGrob()
+p$grobs[[blk]] <- mg
+
+# shared y-axis title, rotated, outside both blocks
+fig <- wrap_elements(p) +
   labs(tag = "Cumulative burden (% of no vaccination)") +
   theme(plot.tag = element_text(size = 11, angle = 90),
         plot.tag.position = "left")
 
-ggsave("combined_residual_burden.png", p, width = 10, height = 7.4, dpi = 200)
-ggsave("combined_residual_burden.pdf", p, width = 10, height = 7.4)
+ggsave("combined_residual_burden.png", fig, width = 10, height = 7.4, dpi = 200)
+ggsave("combined_residual_burden.pdf", fig, width = 10, height = 7.4)
 cat("Saved combined_residual_burden.png / .pdf",
-    "(A Chikungunya: 2 arms; B Mayaro: disease-blocking).\n")
+    "(A Chikungunya: 2 arms; B Mayaro: disease-blocking, deaths cell blank).\n")
