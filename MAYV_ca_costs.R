@@ -156,17 +156,23 @@ fmt <- function(x, dp = 0) sprintf("%s (%s - %s)",
         formatC(round(x[2], dp), big.mark = ",", format = "f", digits = dp),
         formatC(round(x[3], dp), big.mark = ",", format = "f", digits = dp))
 
-cost_table <- function(mult) do.call(rbind, lapply(scen_names, function(s) {
-  m <- cost_pd[[s]][ok, , drop = FALSE] * mult
+# Both currencies side by side: the USD columns are the BRL columns times a single
+# scalar, so every ratio (% of baseline, NNV, burden as % of no vaccination) is
+# untouched by the conversion -- only the units and magnitudes change.
+sh_costs <- do.call(rbind, lapply(scen_names, function(s) {
+  m <- cost_pd[[s]][ok, , drop = FALSE]; u <- m * BRL2019_TO_USD2026
   data.frame(scenario = s,
-             hosp_inpatient       = fmt(q3(m[, "hosp_inpatient"])),
-             out_acute            = fmt(q3(m[, "out_acute"])),
-             out_subacute         = fmt(q3(m[, "out_subacute"])),
-             out_chronic          = fmt(q3(m[, "out_chronic"])),
-             TOTAL_direct_medical = fmt(q3(m[, "total_direct_medical"])),
+             hosp_inpatient_BRL2019       = fmt(q3(m[, "hosp_inpatient"])),
+             out_acute_BRL2019            = fmt(q3(m[, "out_acute"])),
+             out_subacute_BRL2019         = fmt(q3(m[, "out_subacute"])),
+             out_chronic_BRL2019          = fmt(q3(m[, "out_chronic"])),
+             TOTAL_direct_medical_BRL2019 = fmt(q3(m[, "total_direct_medical"])),
+             hosp_inpatient_USD2026       = fmt(q3(u[, "hosp_inpatient"])),
+             out_acute_USD2026            = fmt(q3(u[, "out_acute"])),
+             out_subacute_USD2026         = fmt(q3(u[, "out_subacute"])),
+             out_chronic_USD2026          = fmt(q3(u[, "out_chronic"])),
+             TOTAL_direct_medical_USD2026 = fmt(q3(u[, "total_direct_medical"])),
              stringsAsFactors = FALSE) }))
-sh_costs     <- cost_table(1)                       # 2019 BRL, as costed
-sh_costs_usd <- cost_table(BRL2019_TO_USD2026)      # 2025 US$
 
 sh_counts <- do.call(rbind, lapply(scen_names, function(s) {
   m <- count_pd[[s]][ok, , drop = FALSE]
@@ -182,22 +188,22 @@ sh_counts <- do.call(rbind, lapply(scen_names, function(s) {
 # averted vs baseline, paired per draw (so the UI keeps the correlation)
 base <- cost_pd[["No vaccine (baseline)"]]
 vac  <- setdiff(scen_names, "No vaccine (baseline)")
-averted_table <- function(mult) do.call(rbind, lapply(vac, function(s) {
-  a  <- (base - cost_pd[[s]])[ok, , drop = FALSE]
-  bs <- base[ok, , drop = FALSE]
-  dz <- G$per_draw[[s]][ok, "doses"]
+sh_averted <- do.call(rbind, lapply(vac, function(s) {
+  a <- (base - cost_pd[[s]])[ok, , drop = FALSE]; u <- a * BRL2019_TO_USD2026
   data.frame(scenario = s,
-             hosp_inpatient       = fmt(q3(a[, "hosp_inpatient"] * mult)),
-             out_acute            = fmt(q3(a[, "out_acute"] * mult)),
-             out_subacute         = fmt(q3(a[, "out_subacute"] * mult)),
-             out_chronic          = fmt(q3(a[, "out_chronic"] * mult)),
-             TOTAL_cost_averted   = fmt(q3(a[, "total_direct_medical"] * mult)),
-             pct_of_baseline      = fmt(q3(100*a[, "total_direct_medical"] /
-                                            bs[, "total_direct_medical"]), 1),
-             cost_averted_per_dose= fmt(q3(a[, "total_direct_medical"] * mult / dz), 2),
+             hosp_inpatient_BRL2019     = fmt(q3(a[, "hosp_inpatient"])),
+             out_acute_BRL2019          = fmt(q3(a[, "out_acute"])),
+             out_subacute_BRL2019       = fmt(q3(a[, "out_subacute"])),
+             out_chronic_BRL2019        = fmt(q3(a[, "out_chronic"])),
+             TOTAL_cost_averted_BRL2019 = fmt(q3(a[, "total_direct_medical"])),
+             TOTAL_cost_averted_USD2026 = fmt(q3(u[, "total_direct_medical"])),
+             pct_of_baseline            = fmt(q3(100*a[, "total_direct_medical"] /
+                                                  base[ok, "total_direct_medical"]), 1),
+             cost_averted_per_dose_BRL2019 = fmt(q3(a[, "total_direct_medical"] /
+                                                     G$per_draw[[s]][ok, "doses"]), 2),
+             cost_averted_per_dose_USD2026 = fmt(q3(u[, "total_direct_medical"] /
+                                                     G$per_draw[[s]][ok, "doses"]), 2),
              stringsAsFactors = FALSE) }))
-sh_averted     <- averted_table(1)                     # 2019 BRL
-sh_averted_usd <- averted_table(BRL2019_TO_USD2026)    # 2025 US$
 
 # ------------------------------------------------------------
 # 5. Unit-cost audit: input vs fitted distribution vs realised draws
@@ -311,8 +317,7 @@ sh_notes <- data.frame(item = c(
 
 write_xlsx(list(notes = sh_notes, unit_costs = sh_units, cost_per_case = sh_percase,
                 case_counts = sh_counts, costs_by_scenario = sh_costs,
-                costs_by_scenario_USD2026 = sh_costs_usd,
-                cost_averted = sh_averted, cost_averted_USD2026 = sh_averted_usd,
+                cost_averted = sh_averted,
                 audit_point_estimate = sh_audit, goncalves_check = sh_check),
            "MAYV_ca_costs.xlsx")
 saveRDS(list(cost_pd = cost_pd, count_pd = count_pd, outbreak = ok,
