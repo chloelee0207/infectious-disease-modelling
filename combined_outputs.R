@@ -35,7 +35,10 @@ suppressMessages({library(dplyr); library(ggplot2); library(patchwork)})
 if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" R0 2.50 | "low" R0 1.20
 
 ARMS      <- c("Disease-blocking", "Disease + infection blocking")
-OUT_LV    <- c("Cumulative DALYs", "Cumulative deaths", "Healthcare cost")
+OUT_LV    <- c("Cumulative DALYs", "Cumulative deaths", "Healthcare cost")  # as stored in the .rds
+# Strip text for the B/C/D rows -- EDIT HERE to rename them. Must stay in OUT_LV order;
+# the .rds names above are the lookup keys and must not be changed.
+OUT_LAB   <- c("DALYs", "deaths", "Healthcare costs")
 FILL      <- c("No vaccination" = "grey60", "Vaccination" = "#4e79a7")
 scen_cols <- c("No vaccination" = "grey55", "Disease-blocking" = "#4393c3",
                "Disease + infection blocking" = "#d6604d")
@@ -146,18 +149,16 @@ cat(sprintf("Saved CHIKV_MAYV_epicurves.png (MAYV = '%s', fixed R0 = %.2f, all %
 # One block per outcome so each can carry its own panel letter; the CHIKV block holds
 # both arms and the MAYV block one, at widths 2:1.
 # ------------------------------------------------------------
-chik$outcome <- factor(as.character(chik$outcome), levels = OUT_LV)
-mayv$outcome <- factor(as.character(mayv$outcome), levels = OUT_LV)   # deaths kept as an
-mayv$arm     <- factor(ARMS[1], levels = ARMS[1])                     # empty level
+chik$outcome <- factor(as.character(chik$outcome), levels = OUT_LV, labels = OUT_LAB)
+mayv$outcome <- factor(as.character(mayv$outcome), levels = OUT_LV, labels = OUT_LAB)
+mayv$arm     <- factor(ARMS[1], levels = ARMS[1])       # deaths kept as an empty level
 chik$arm     <- factor(as.character(chik$arm), levels = ARMS)
 
 burden <- function(d, strip, ylab, x_axis, y_axis, tag, row_strip = FALSE) {
   ggplot(d, aes(scenario, med, fill = scenario)) +
-    geom_col(width = .6) +
-    geom_errorbar(aes(ymin = lo, ymax = hi), width = .15, linewidth = .35) +
-    # switch = "y" puts the outcome strip on the LEFT, outside the axis, so the rows
-    # are named in grey boxes and the block keeps one shared y title
-    facet_grid(outcome ~ arm, drop = FALSE, switch = if (row_strip) "y" else NULL) +
+    geom_col(width = .6, na.rm = TRUE) +
+    geom_errorbar(aes(ymin = lo, ymax = hi), width = .15, linewidth = .35, na.rm = TRUE) +
+    facet_grid(outcome ~ arm, drop = FALSE) +
     scale_fill_manual(values = FILL, name = NULL) +
     scale_y_continuous(labels = function(x) paste0(x, "%"),
                        limits = c(0, 105), breaks = seq(0, 100, 25)) +
@@ -175,9 +176,10 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag, row_strip = FALSE) {
           axis.ticks.y = if (y_axis) element_line() else element_blank(),
           strip.text.x = if (is.null(strip)) element_blank()
                          else element_text(face = "bold", size = 9),
-          strip.text.y.left = element_text(face = "bold", size = 9, angle = 90),
-          strip.text.y = element_blank(),           # MAYV block: named by the CHIKV strip
-          strip.placement = "outside",
+          # the outcome strip rides on the RIGHT-hand (MAYV) block only, so it sits at
+          # the far edge of the figure and cannot collide with the B/C/D letters
+          strip.text.y = if (row_strip) element_text(face = "bold", size = 9, angle = -90)
+                         else element_blank(),
           panel.grid.minor = element_blank(),
           # the bars are already named on the x axis, so a fill legend adds nothing
           legend.position = "none")
@@ -189,11 +191,24 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag, row_strip = FALSE) {
 # reduced to the single level this row shows.
 one_row <- function(d, o) { d <- subset(d, outcome == o); d$outcome <- droplevels(d$outcome); d }
 
+# The Mayaro deaths cell has no bars (CFR fixed at 0), but the row still needs its
+# right-hand strip, so it gets a data-free block with every panel element blanked.
+blank_row <- function(o) {
+  d <- data.frame(outcome = factor(o), arm = factor(ARMS[1], levels = ARMS[1]),
+                  scenario = factor("No vaccination", levels = names(FILL)),
+                  med = NA_real_, lo = NA_real_, hi = NA_real_)
+  burden(d, NULL, NULL, FALSE, FALSE, NULL, row_strip = TRUE) +
+    theme(panel.border = element_blank(), panel.background = element_blank(),
+          panel.grid = element_blank(), axis.text = element_blank(),
+          axis.ticks = element_blank())
+}
+
 row_burden <- function(o, tag, strip = FALSE, x_axis = FALSE) {
   st <- if (strip) TRUE else NULL
-  c_blk <- burden(one_row(chik, o), st, NULL, x_axis, TRUE, tag, row_strip = TRUE)
-  if (o == "Cumulative deaths") return(list(c = c_blk, m = NULL))     # MAYV: CFR fixed at 0
-  list(c = c_blk, m = burden(one_row(mayv, o), st, NULL, x_axis, FALSE, NULL))
+  c_blk <- burden(one_row(chik, o), st, NULL, x_axis, TRUE, tag)
+  m_blk <- if (o == OUT_LAB[2]) blank_row(o)                          # MAYV CFR is 0
+           else burden(one_row(mayv, o), st, NULL, x_axis, FALSE, NULL, row_strip = TRUE)
+  list(c = c_blk, m = m_blk)
 }
 
 # Disease names head the whole B-D block, above the panel letters. They sit on their own
@@ -205,15 +220,15 @@ head_lab <- function(txt) ggplot() + labs(title = txt) + theme_void() +
         plot.margin = margin(0, 0, 0, 0))
 
 YLAB <- "Cumulative burden (% of no vaccination)"
-rB <- row_burden("Cumulative DALYs",  "B", strip = TRUE)
-rC <- row_burden("Cumulative deaths", "C")
-rD <- row_burden("Healthcare cost",   "D", x_axis = TRUE)
+rB <- row_burden(OUT_LAB[1], "B", strip = TRUE)
+rC <- row_burden(OUT_LAB[2], "C")
+rD <- row_burden(OUT_LAB[3], "D", x_axis = TRUE)
 
 # standalone version of the burden figure, three outcomes stacked
 burden_rows <- (head_lab("Chikungunya") + head_lab("Mayaro") +
                   plot_layout(widths = c(2, 1))) /
                (rB$c + rB$m + plot_layout(widths = c(2, 1))) /
-               (rC$c + plot_spacer() + plot_layout(widths = c(2, 1))) /
+               (rC$c + rC$m + plot_layout(widths = c(2, 1))) /
                (rD$c + rD$m + plot_layout(widths = c(2, 1))) +
                plot_layout(heights = c(.01, 1, 1, 1))
 
