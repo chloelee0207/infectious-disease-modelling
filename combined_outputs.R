@@ -114,14 +114,20 @@ epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = 4) {
     scale_colour_manual(values = scen_cols, aesthetics = c("colour", "fill"), drop = FALSE) +
     scale_linetype_manual(values = c("Reported" = "dotted"),
                           labels = c("Reported" = "Reported symptomatic cases"), name = NULL) +
-    guides(fill   = guide_legend(order = 1, override.aes = list(linetype = 0, alpha = .55)),
-           colour = guide_legend(order = 1, override.aes = list(linetype = 0)),
+    guides(fill   = guide_legend(order = 1, nrow = 2, byrow = TRUE,
+                                 override.aes = list(linetype = 0, alpha = .55)),
+           colour = guide_legend(order = 1, nrow = 2, byrow = TRUE,
+                                 override.aes = list(linetype = 0)),
            linetype = guide_legend(order = 2, override.aes = list(colour = "grey25"))) +
     scale_x_continuous(breaks = c(1, seq(10, T_sim, by = 10))) +
     scale_y_continuous(labels = scales::comma) +
     labs(x = "Week (index, 1 = 2025-W24)", y = ylab, colour = NULL, fill = NULL) +
     theme_bw(11) +
     theme(legend.position = "bottom", strip.text = element_text(face = "bold", size = 10),
+          # the four keys overrun an 11in figure on one line, so the scenario guide
+          # wraps to two rows rather than being shrunk until it is unreadable
+          legend.text = element_text(size = 9), legend.key.size = unit(.9, "lines"),
+          legend.justification = "center",
           panel.grid.minor = element_blank())
 }
 
@@ -157,9 +163,10 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag) {
     theme_bw(11) +
     theme(plot.tag = element_text(face = "bold", size = 13),
           plot.tag.position = c(0, 1),
+          axis.title.y = element_text(size = 10),
           # top margin gives each panel letter its own band, so B, C and D stay legible
           # instead of being squeezed against the row above
-          plot.margin = margin(t = 30, r = 5.5, b = 5.5, l = 5.5),
+          plot.margin = margin(t = 22, r = 5.5, b = 5.5, l = 5.5),
           axis.text.x  = if (x_axis) element_text(size = 8.5) else element_blank(),
           axis.ticks.x = if (x_axis) element_line() else element_blank(),
           axis.text.y  = if (y_axis) element_text() else element_blank(),
@@ -183,12 +190,14 @@ row_burden <- function(o, tag, ylab = NULL, strip = FALSE, x_axis = FALSE) {
 # void row rather than as titles on row B so that they read before the B, and so C and D
 # inherit them without the names being repeated three times.
 head_lab <- function(txt) ggplot() + labs(title = txt) + theme_void() +
-  theme(plot.title = element_text(face = "bold", size = 12, hjust = .5))
+  theme(plot.title = element_text(face = "bold", size = 12, hjust = .5,
+                                  margin = margin(t = 0, b = 2)),
+        plot.margin = margin(0, 0, 0, 0))
 
-YLAB <- "Cumulative burden (% of no vaccination)"
-rB <- row_burden("Cumulative DALYs",  "B", NULL, strip = TRUE)
-rC <- row_burden("Cumulative deaths", "C")
-rD <- row_burden("Healthcare cost",   "D", NULL, x_axis = TRUE)
+YLAB <- "% of no vaccination"
+rB <- row_burden("Cumulative DALYs",  "B", "Cumulative DALYs", strip = TRUE)
+rC <- row_burden("Cumulative deaths", "C", "Cumulative deaths")
+rD <- row_burden("Healthcare cost",   "D", "Healthcare cost", x_axis = TRUE)
 
 # standalone version of the burden figure, three outcomes stacked
 burden_rows <- (head_lab("Chikungunya") + head_lab("Mayaro") +
@@ -196,13 +205,14 @@ burden_rows <- (head_lab("Chikungunya") + head_lab("Mayaro") +
                (rB$c + rB$m + plot_layout(widths = c(2, 1))) /
                (rC$c + plot_spacer() + plot_layout(widths = c(2, 1))) /
                (rD$c + rD$m + plot_layout(widths = c(2, 1))) +
-               plot_layout(heights = c(.1, 1, 1, 1))
+               plot_layout(heights = c(.01, 1, 1, 1))
 
 # One rotated y title for the whole B-D block. Put on a single row it would be taller
 # than that row and get clipped, so it is attached to the wrapped block instead.
 with_ylab <- function(blk) wrap_elements(patchworkGrob(blk)) +
   labs(tag = YLAB) +
-  theme(plot.tag = element_text(size = 11, angle = 90), plot.tag.position = "left")
+  theme(plot.tag = element_text(size = 11, angle = 90), plot.tag.position = "left",
+        plot.margin = margin(t = 0, r = 0, b = 0, l = 0))
 
 p_burden <- with_ylab(burden_rows)
 ggsave("combined_residual_burden.png", p_burden, width = 9.5, height = 9, dpi = 150)
@@ -266,13 +276,13 @@ pA_m <- pE_m + guides(fill = "none", colour = "none", linetype = "none")
 
 # equal halves: the Mayaro curve needs as much room to be read as the Chikungunya one
 row_A <- pA_c + pA_m + plot_layout(widths = c(1, 1)) &
-  theme(legend.position = "bottom")
+  theme(legend.position = "bottom", plot.margin = margin(t = 5.5, r = 5.5, b = 2, l = 5.5))
 
 # the burden panels are two bars wide, so the block is inset rather than stretched
 row_BCD <- plot_spacer() + with_ylab(burden_rows) + plot_spacer() +
   plot_layout(widths = c(.08, 1, .08))
 
-master <- row_A / row_BCD + plot_layout(heights = c(1.4, 2.6))
+master <- row_A / row_BCD + plot_layout(heights = c(1.3, 2.7))
 
 ggsave("combined_master.png", master, width = 11, height = 12.5, dpi = 150)
 ggsave("combined_master.pdf", master, width = 11, height = 12.5)
