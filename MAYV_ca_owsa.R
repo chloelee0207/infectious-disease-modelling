@@ -453,10 +453,10 @@ p_hm <- ggplot(grid_df, aes(factor(100*coverage), factor(100*ve), fill = pct)) +
   geom_text(aes(label = sprintf("%.1f", pct)), size = 4.0, colour = "grey15") +
   scale_fill_distiller(palette = "Spectral", name = "% of total\nsymptomatic\ncases averted") +
   labs(x = "Vaccine coverage (% of eligible population aged 18-59)",
-       y = "Vaccine efficacy (%)",
-       title = sprintf("MAYV: %% of symptomatic cases averted, by VE x coverage (fixed peak R0 = %.2f)", BASE$R0),
-       subtitle = paste("Disease-blocking only, so the grid is EXACT, not interpolated. Near-invariant to R0:",
-                        "the reduction is ~VE x coverage x (share of cases in the eligible 18-59 group).")) +
+       y = "Vaccine efficacy (%)") +
+       # title = sprintf("MAYV: %% of symptomatic cases averted, by VE x coverage (fixed peak R0 = %.2f)", BASE$R0),
+       # subtitle = paste("Disease-blocking only, so the grid is EXACT, not interpolated. Near-invariant to R0:",
+       #                  "the reduction is ~VE x coverage x (share of cases in the eligible 18-59 group).")) +
   theme_bw(11) + theme(panel.grid = element_blank(),
                        plot.title = element_text(face = "bold", size = 11),
                        plot.subtitle = element_text(size = 8.5))
