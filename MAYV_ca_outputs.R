@@ -29,7 +29,10 @@
 #   * Severity/DALY parameters are BORROWED from CHIKV (upper bound), and the seasonal
 #     envelope is the hybrid CHIKV-beta + dry-season envelope (2025-W24 -> 2026-W22).
 #
-# Run order: source("MAYV_ca_lhs.R"); source("MAYV_ca_engine.R"); source(this)
+# Run order: source("MAYV_ca_lhs.R"); source("MAYV_ca_engine.R");
+#            source("MAYV_ca_costs.R"); source(this)
+#            (the cost layer reads only the engine .rds, and the residual-burden
+#             figure needs its per-draw direct medical costs.)
 # ============================================================
 library(writexl)
 if (!exists("fmtq")) source("ca_common.R")   # fmtq(v, d) -> "median (lo - hi)"
@@ -206,10 +209,18 @@ write_xlsx(list(nnv = nnv_tbl), "MAYV_ca_nnv_outputs.xlsx")
 # Deaths are omitted: MAYV_ZERO_DEATHS = TRUE sets the MAYV CFR to 0, so baseline
 # deaths are identically 0 and the ratio is undefined. DALY = YLD for the same reason.
 #
-# Hospitalisation cost is computed from hospitalisation COUNTS: the per-case
-# hospitalisation cost is the same within a draw for baseline and vaccinated arm, so it
-# cancels exactly in the ratio. That keeps this panel independent of MAYV_ca_costs.R,
-# which runs after this script.
+# Healthcare cost is TOTAL direct medical cost -- inpatient plus acute, sub-acute and
+# chronic outpatient -- matching the "costs averted" definition in Table 2. It is read
+# from the cost layer because the outpatient components need the recovery funnel, which
+# only MAYV_ca_costs.R evaluates.
+#
+# NOTE on interpretation: every cost component is linear in case counts that all descend
+# from total symptomatic through rates shared by both arms within a draw (a SINGLE
+# all-ages hosp_rate, the recovery funnel, and the sampled unit costs). Those factors
+# cancel in the ratio, so this PERCENTAGE equals the symptomatic-case percentage to ~0.1
+# pp. It is the absolute R$ averted, not the %, that this panel adds over a case count.
+# Deaths do differ (90% vs 84%) because cfr_vec IS age-specific, so the vaccine's
+# 18-59 targeting shifts the age mix of fatal cases.
 # ------------------------------------------------------------
 library(ggplot2)
 stopifnot(max(base_pd[ok, "deaths"]) == 0)        # guard the "no deaths panel" claim
@@ -222,16 +233,27 @@ add_res <- function(outcome, scen, v) res_rows[[length(res_rows)+1]] <<- data.fr
   med = median(v, na.rm = TRUE), lo = quantile(v, .025, na.rm = TRUE),
   hi = quantile(v, .975, na.rm = TRUE), row.names = NULL)
 
-resid_outcomes <- c(daly = "Cumulative DALYs", hospitalisations = "Hospitalisation cost")
+if (!file.exists("MAYV_ca_costs.rds"))
+  stop("MAYV_ca_costs.rds not found -- run MAYV_ca_costs.R before this script ",
+       "(the residual-burden figure needs total direct medical cost).")
+cost_pd <- readRDS("MAYV_ca_costs.rds")$cost_pd
+stopifnot(nrow(cost_pd[[1]]) == nrow(base_pd))    # cost draws align with engine draws
+
+# outcome -> (source, column). "engine" = per-draw burden; "cost" = per-draw cost layer.
+resid_outcomes <- list(
+  list(lab = "Cumulative DALYs", src = "engine", col = "daly"),
+  list(lab = "Healthcare cost",  src = "cost",   col = "total_direct_medical"))
 nm <- vac_names[1]
-for (o in names(resid_outcomes)) {
-  add_res(resid_outcomes[[o]], "No vaccination", 100)
-  add_res(resid_outcomes[[o]], "Vaccination",
-          pct_of_base(G$per_draw[[nm]][ok, o], base_pd[ok, o]))
+for (o in resid_outcomes) {
+  v <- if (o$src == "engine") pct_of_base(G$per_draw[[nm]][ok, o$col], base_pd[ok, o$col])
+       else pct_of_base(cost_pd[[nm]][ok, o$col],
+                        cost_pd[["No vaccine (baseline)"]][ok, o$col])
+  add_res(o$lab, "No vaccination", 100)
+  add_res(o$lab, "Vaccination",    v)
 }
 resid <- do.call(rbind, res_rows)
 resid$scenario <- factor(resid$scenario, levels = c("No vaccination", "Vaccination"))
-resid$outcome  <- factor(resid$outcome, levels = unname(resid_outcomes))
+resid$outcome  <- factor(resid$outcome, levels = sapply(resid_outcomes, `[[`, "lab"))
 resid$arm      <- factor("Disease-blocking")      # MAYV has no infection-blocking arm
 
 p_resid <- ggplot(resid, aes(scenario, med, fill = scenario)) +

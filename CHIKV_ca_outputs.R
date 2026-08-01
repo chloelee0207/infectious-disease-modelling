@@ -7,7 +7,9 @@
 #
 # Horizon is the 52-week observed window, 2025-W24 -> 2026-W22.
 #
-# Run order:  CHIKV_ca_engine.R  ->  this file
+# Run order:  CHIKV_ca_engine.R  ->  CHIKV_ca_costs.R  ->  this file
+#             (the cost layer reads only the engine .rds, and section 8 needs its
+#              per-draw direct medical costs, so costs must run before this file.)
 # ============================================================
 library(dplyr); library(tidyr); library(ggplot2); library(writexl)
 if (!exists("fmtq")) source("ca_common.R")
@@ -461,11 +463,20 @@ if (!file.exists(mayv_epi_file)) {
 # Ratios are formed per draw (scenario / baseline) and then summarised, so the UI
 # keeps the baseline-scenario pairing instead of dividing two independent medians.
 #
-# Hospitalisation cost is computed from hospitalisation COUNTS. The per-case
-# hospitalisation cost is sampled per draw but is the SAME value for the baseline and
-# the vaccinated arm within that draw, so it cancels exactly in the ratio -- the cost
-# percentage is identical to the count percentage (verified to machine precision).
-# This keeps the panel independent of CHIKV_ca_costs.R, which runs after this script.
+# Healthcare cost is TOTAL direct medical cost -- inpatient plus acute, sub-acute and
+# chronic outpatient -- matching the "costs averted" definition in Table 2. It is read
+# from the cost layer because the outpatient components need the recovery funnel, which
+# only CHIKV_ca_costs.R evaluates.
+#
+# NOTE on interpretation: every cost component is linear in case counts that all descend
+# from total symptomatic through rates shared by both arms within a draw (a SINGLE
+# all-ages hosp_rate, the recovery funnel, and the sampled unit costs). Those factors
+# cancel in the ratio, so this PERCENTAGE equals the symptomatic-case percentage to ~0.1
+# pp. It is the absolute R$ averted, not the %, that this panel adds over a case count.
+# Deaths do differ (90% vs 84%) because cfr_vec IS age-specific, so the vaccine's
+# 18-59 targeting shifts the age mix of fatal cases.
+# NOT reduce to a case-count ratio: the four components carry very different unit costs
+# and the vaccine shifts the age mix, so the blend moves independently of any one count.
 # ------------------------------------------------------------
 RESID_TIMING <- "pre-outbreak"                    # 2025-W40, the only timing shown
 stopifnot(RESID_TIMING %in% names(timings))
@@ -477,20 +488,32 @@ add_res <- function(outcome, scen, arm, v) res_rows[[length(res_rows)+1]] <<- da
   med = median(v, na.rm = TRUE), lo = quantile(v, .025, na.rm = TRUE),
   hi = quantile(v, .975, na.rm = TRUE), row.names = NULL)
 
-resid_outcomes <- c(daly = "Cumulative DALYs", deaths = "Cumulative deaths",
-                    hospitalisations = "Hospitalisation cost")
+if (!file.exists("CHIKV_ca_costs.rds"))
+  stop("CHIKV_ca_costs.rds not found -- run CHIKV_ca_costs.R before this script ",
+       "(section 8 needs total direct medical cost).")
+cost_pd <- readRDS("CHIKV_ca_costs.rds")$cost_pd
+stopifnot(nrow(cost_pd[[1]]) == nrow(bmat[[1]]))   # cost draws align with engine draws
+
+# outcome -> (source, column). "engine" = per-draw burden; "cost" = per-draw cost layer.
+resid_outcomes <- list(
+  list(lab = "Cumulative DALYs",  src = "engine", col = "daly"),
+  list(lab = "Cumulative deaths", src = "engine", col = "deaths"),
+  list(lab = "Healthcare cost",   src = "cost",   col = "total_direct_medical"))
 bl <- bmat[["No vaccine (baseline)"]]
 for (arm in arm_names) {
   nm <- paste0(RESID_TIMING, " | ", arm)
-  for (o in names(resid_outcomes)) {
-    add_res(resid_outcomes[[o]], "No vaccination", arm, 100)
-    add_res(resid_outcomes[[o]], "Vaccination",    arm, pct_of_base(bmat[[nm]][, o], bl[, o]))
+  for (o in resid_outcomes) {
+    v <- if (o$src == "engine") pct_of_base(bmat[[nm]][, o$col], bl[, o$col])
+         else pct_of_base(cost_pd[[nm]][, o$col],
+                          cost_pd[["No vaccine (baseline)"]][, o$col])
+    add_res(o$lab, "No vaccination", arm, 100)
+    add_res(o$lab, "Vaccination",    arm, v)
   }
 }
 resid <- do.call(rbind, res_rows)
 resid$scenario <- factor(resid$scenario, levels = c("No vaccination", "Vaccination"))
 resid$arm      <- factor(resid$arm, levels = arm_names)
-resid$outcome  <- factor(resid$outcome, levels = unname(resid_outcomes))
+resid$outcome  <- factor(resid$outcome, levels = sapply(resid_outcomes, `[[`, "lab"))
 
 p_resid <- ggplot(resid, aes(scenario, med, fill = scenario)) +
   geom_col(width = .6) +
