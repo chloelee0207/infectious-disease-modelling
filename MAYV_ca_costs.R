@@ -124,17 +124,24 @@ cost_of <- function(pd) {
                      entered_chronic = n_chr))
 }
 # ------------------------------------------------------------
-# CURRENCY. Unit costs are 2019 BRL; results are ALSO reported in 2025 US$.
+# CURRENCY. Unit costs are 2019 BRL; results are ALSO reported in 2026 US$.
 # Two steps, in this order:
-#   (1) inflate 2019 BRL -> 2025 BRL with the IPCA subgroup for HEALTH AND PERSONAL
-#       CARE (IBGE, group 6, c315 = 7660; SIDRA t/1419 for 2019, t/7060 from 2020),
-#       chained from the monthly rates and compared as ANNUAL AVERAGES;
-#   (2) divide by the 2025 ANNUAL-AVERAGE exchange rate.
-# Kept identical to CHIKV_ca_costs.R so the two pathogens are directly comparable.
+#   (1) inflate to June 2026 BRL with the IPCA subgroup for HEALTH AND PERSONAL CARE
+#       (IBGE group 6), chained from the 12-MONTH ACCUMULATED rate reported each June
+#       (IBGE IPCA/INPC monthly releases, June 2020 through June 2026):
+#         2.05, 4.31, 6.14, 10.37, 6.09, 5.16, 6.21 %  ->  factor 1.47761 (+47.76%)
+#       June-to-June is used because that is the vintage of the published releases.
+#       It also sits mid-year, so it is a closer match to an annual-average 2019
+#       costing than a December base would be.
+#   (2) divide by the mean USD/BRL over 2 Feb - 30 Jul 2026 (exchangerates.org.uk).
+#       That window is centred on early May 2026, near the June index date.
+# The order matters: inflating in BRL first leaves both steps in 2026 money. The health
+# subgroup is used instead of headline IPCA because these are health care prices, which
+# rose faster than the general index (+47.8% vs +37.1% over the same span).
 # ------------------------------------------------------------
-IPCA_HEALTH_19_25  <- 1.40093   # IBGE: 2019 annual avg -> 2025 annual avg (+40.09%)
-USD_BRL_2025       <- 5.5855    # BCB PTAX venda, mean of the 252 business days in 2025
-BRL2019_TO_USD2025 <- IPCA_HEALTH_19_25 / USD_BRL_2025
+IPCA_HEALTH_19_26  <- 1.47761   # IBGE, June 2019 -> June 2026
+USD_BRL_2026       <- 5.1257    # mean USD/BRL, 2 Feb - 30 Jul 2026
+BRL2019_TO_USD2026 <- IPCA_HEALTH_19_26 / USD_BRL_2026
 
 COMP <- c("hosp_inpatient", "out_acute", "out_subacute", "out_chronic", "total_direct_medical")
 cost_pd  <- setNames(lapply(scen_names, function(s) cost_of(G$per_draw[[s]])$cost),  scen_names)
@@ -159,7 +166,7 @@ cost_table <- function(mult) do.call(rbind, lapply(scen_names, function(s) {
              TOTAL_direct_medical = fmt(q3(m[, "total_direct_medical"])),
              stringsAsFactors = FALSE) }))
 sh_costs     <- cost_table(1)                       # 2019 BRL, as costed
-sh_costs_usd <- cost_table(BRL2019_TO_USD2025)      # 2025 US$
+sh_costs_usd <- cost_table(BRL2019_TO_USD2026)      # 2025 US$
 
 sh_counts <- do.call(rbind, lapply(scen_names, function(s) {
   m <- count_pd[[s]][ok, , drop = FALSE]
@@ -190,7 +197,7 @@ averted_table <- function(mult) do.call(rbind, lapply(vac, function(s) {
              cost_averted_per_dose= fmt(q3(a[, "total_direct_medical"] * mult / dz), 2),
              stringsAsFactors = FALSE) }))
 sh_averted     <- averted_table(1)                     # 2019 BRL
-sh_averted_usd <- averted_table(BRL2019_TO_USD2025)    # 2025 US$
+sh_averted_usd <- averted_table(BRL2019_TO_USD2026)    # 2025 US$
 
 # ------------------------------------------------------------
 # 5. Unit-cost audit: input vs fitted distribution vs realised draws
@@ -211,10 +218,10 @@ sh_percase <- data.frame(
               "public_share*public_stay_cost + (1-public_share)*private_stay_cost"),
   cost_per_case_BRL2019 = c(fmt(q3(pc_acute), 2), fmt(q3(pc_sub), 2),
                             fmt(q3(pc_chr), 2), fmt(q3(pc_hosp), 2)),
-  cost_per_case_USD2025 = c(fmt(q3(pc_acute*BRL2019_TO_USD2025), 2),
-                            fmt(q3(pc_sub  *BRL2019_TO_USD2025), 2),
-                            fmt(q3(pc_chr  *BRL2019_TO_USD2025), 2),
-                            fmt(q3(pc_hosp *BRL2019_TO_USD2025), 2)),
+  cost_per_case_USD2026 = c(fmt(q3(pc_acute*BRL2019_TO_USD2026), 2),
+                            fmt(q3(pc_sub  *BRL2019_TO_USD2026), 2),
+                            fmt(q3(pc_chr  *BRL2019_TO_USD2026), 2),
+                            fmt(q3(pc_hosp *BRL2019_TO_USD2026), 2)),
   stringsAsFactors = FALSE)
 
 # ------------------------------------------------------------
@@ -282,8 +289,8 @@ sh_notes <- data.frame(item = c(
  "Why medians do not add up", "Averted costs", "Scope"),
  detail = c(
  "Mayaro virus (MAYV), Caldas Novas, hypothetical outbreak.",
- "Costed in 2019 Brazilian reais (BRL); every cost sheet is also given in 2025 US$.",
- sprintf("2019 BRL -> 2025 BRL by the IPCA health and personal care subgroup (IBGE group 6, annual average 2019 vs annual average 2025, factor %.5f, +%.2f%%), then / %.4f, the 2025 annual-average PTAX selling rate (BCB SGS series 1, 252 business days). Combined multiplier %.6f. No PPP adjustment.", IPCA_HEALTH_19_25, 100*(IPCA_HEALTH_19_25-1), USD_BRL_2025, BRL2019_TO_USD2025),
+ "Costed in 2019 Brazilian reais (BRL); every cost sheet is also given in 2026 US$.",
+ sprintf("2019 BRL -> June 2026 BRL by the IPCA health and personal care subgroup (IBGE group 6), chained from the 12-month accumulated rate published each June 2020-2026 (2.05, 4.31, 6.14, 10.37, 6.09, 5.16, 6.21%%): factor %.5f, +%.2f%%. Then / %.4f, the mean USD/BRL over 2 Feb - 30 Jul 2026. Combined multiplier %.6f. No PPP adjustment.", IPCA_HEALTH_19_26, 100*(IPCA_HEALTH_19_26-1), USD_BRL_2026, BRL2019_TO_USD2026),
  "Goncalves et al. 2024, Rev Bras Epidemiol 27:e240026 (Rio de Janeiro, 2019) -- a CHIKUNGUNYA study.",
  "There is NO published MAYV cost-of-illness study. CHIKV unit costs and regimens are BORROWED as the closest alphavirus proxy (same acute-arthralgia care pathway). MAYV is generally milder, so these are a CHIKV-equivalent UPPER bound, not measured MAYV costs.",
  "Brazilian MoH / SES-RJ chikungunya flowchart, 10/01/19.",
@@ -304,8 +311,8 @@ sh_notes <- data.frame(item = c(
 
 write_xlsx(list(notes = sh_notes, unit_costs = sh_units, cost_per_case = sh_percase,
                 case_counts = sh_counts, costs_by_scenario = sh_costs,
-                costs_by_scenario_USD2025 = sh_costs_usd,
-                cost_averted = sh_averted, cost_averted_USD2025 = sh_averted_usd,
+                costs_by_scenario_USD2026 = sh_costs_usd,
+                cost_averted = sh_averted, cost_averted_USD2026 = sh_averted_usd,
                 audit_point_estimate = sh_audit, goncalves_check = sh_check),
            "MAYV_ca_costs.xlsx")
 saveRDS(list(cost_pd = cost_pd, count_pd = count_pd, outbreak = ok,
