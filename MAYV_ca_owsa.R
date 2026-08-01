@@ -357,60 +357,6 @@ print(struct, row.names = FALSE, digits = 5)
 cat("\nWrote MAYV_ca_owsa.xlsx, MAYV_ca_owsa.rds, MAYV_ca_owsa_symptomatic.png\n")
 
 # ------------------------------------------------------------
-# 6. Combined figure: CHIKV (panel A) over MAYV (panel B).
-# MAYV has only the disease-blocking arm, so panel B is a single facet occupying the
-# left-hand column; patchwork's grid layout keeps it aligned with CHIKV's
-# disease-blocking facet above, with the right-hand cell left empty.
-# ------------------------------------------------------------
-if (!file.exists("CHIKV_ca_owsa.rds")) {
-  cat("Skipped the combined tornado (CHIKV_ca_owsa.rds not found -- run CHIKV_ca_owsa.R).\n")
-} else {
-  suppressMessages(library(patchwork))
-  ARMS <- c("Disease-blocking", "Disease + infection blocking")
-  CO <- readRDS("CHIKV_ca_owsa.rds")
-
-  # ---- panel A: CHIKV, both arms
-  ca <- CO$owsa; ca$val <- ca$symptomatic
-  bA <- setNames(CO$base$symptomatic, CO$base$arm)
-  ca$base <- bA[ca$arm]; ca$arm <- factor(ca$arm, levels = ARMS)
-  swA <- ca |> group_by(parameter) |> summarise(s = max(abs(val - base)), .groups = "drop")
-  ca$parameter <- factor(ca$parameter, levels = swA$parameter[order(swA$s)])
-  blA <- data.frame(arm = factor(names(bA), levels = ARMS), base = as.numeric(bA))
-
-  # ---- panel B: MAYV, disease-blocking only (single facet, no empty panel)
-  mb <- owsa; mb$val <- mb$averted; mb$base <- base_run$averted
-  mb$arm <- factor(ARMS[1], levels = ARMS[1])
-  swB <- mb |> group_by(parameter) |> summarise(s = max(abs(val - base)), .groups = "drop")
-  mb$parameter <- factor(mb$parameter, levels = swB$parameter[order(swB$s)])
-  blB <- data.frame(arm = factor(ARMS[1], levels = ARMS[1]), base = base_run$averted)
-
-  tor <- function(d, bl, ttl, legend) {
-    ggplot(d, aes(y = parameter)) +
-      geom_vline(data = bl, aes(xintercept = base), linetype = "dashed", colour = "grey45") +
-      geom_segment(aes(x = base, xend = val, yend = parameter, colour = bound),
-                   linewidth = 5.5, alpha = .85) +
-      facet_wrap(~ arm, nrow = 1, scales = "free_x") +
-      scale_colour_manual(values = c(lower = "#d6604d", upper = "#4393c3"),
-                          labels = c(lower = "Lower", upper = "Upper"), name = "Bound") +
-      scale_x_continuous(labels = scales::comma) +
-      labs(title = ttl, x = "Symptomatic cases averted", y = NULL) +
-      theme_bw(11) +
-      theme(text = element_text(size = 14), legend.position = if (legend) "bottom" else "none",
-            plot.title = element_text(face = "bold", size = 12),
-            strip.text = element_text(face = "bold", size = 10),
-            panel.grid.minor = element_blank())
-  }
-  pA <- tor(ca, blA, "A   Chikungunya", legend = FALSE)
-  pB <- tor(mb, blB, "B   Mayaro", legend = TRUE)
-
-  # A spans both columns; B occupies the left column only, aligned beneath it.
-  design <- "AA\nB#"
-  g <- pA + pB + plot_layout(design = design, heights = c(1, 1.05))
-  ggsave("CHIKV_MAYV_owsa.png", g, width = 11, height = 8.4, dpi = 130)
-  cat("Saved CHIKV_MAYV_owsa.png (panel A = CHIKV, panel B = MAYV).\n")
-}
-
-# ------------------------------------------------------------
 # 7. Scenario sweep: vaccine efficacy x coverage.
 # For a DISEASE-BLOCKING vaccine, infections are vaccine-invariant, so the sweep needs
 # only one SEIR run per coverage level: symptomatic_vaccinated = prop_symp * infections

@@ -8,6 +8,7 @@
 # Horizon is the 52-week observed window, 2025-W24 -> 2026-W22.
 #
 # Run order:  CHIKV_ca_engine.R  ->  CHIKV_ca_costs.R  ->  this file
+#             Cross-pathogen figures (CHIKV beside MAYV) live in combined_outputs.R.
 #             (the cost layer reads only the engine .rds, and section 8 needs its
 #              per-draw direct medical costs, so costs must run before this file.)
 # ============================================================
@@ -350,112 +351,6 @@ p_nnv <- ggplot(nnv_plt, aes(arm, med, fill = arm)) +
         axis.text.x = element_blank(), axis.ticks.x = element_blank(),
         legend.position = "bottom", panel.grid.minor = element_blank())
 print(p_nnv); ggsave("CHIKV_ca_nnv.png", p_nnv, width = 11, height = 4.6, dpi = 120)
-
-# ------------------------------------------------------------
-# 8. Side-by-side CHIKV | MAYV epidemic curves (pre-outbreak rollout).
-# CHIKV has both vaccine arms; MAYV is modelled as disease-blocking only, so its panel
-# carries two curves. MAYV uses a FIXED peak R0 per scenario (low = 1.20 Caicedo
-# outside-Amazon; high = 2.50 sustained urban Aedes transmission), so every MAYV draw is
-# the same transmission regime and ALL draws are plotted -- no take-off conditioning.
-# The MAYV panel is labelled with its R0 so the figure is unambiguous about which
-# scenario is shown. Skipped if the MAYV engine has not been run.
-# ------------------------------------------------------------
-# Which MAYV scenario to put in the right-hand panel. Reads the scenario-TAGGED results
-# file so the figure never depends on which scenario happened to run last.
-if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" (R0 2.50) | "low" (R0 1.20)
-mayv_epi_file <- sprintf("MAYV_ca_engine_results_%s.rds", MAYV_EPI_SCENARIO)
-if (!file.exists(mayv_epi_file)) {
-  cat(sprintf("Skipped CHIKV_MAYV_epicurves.png (%s not found -- run MAYV_ca_lhs.R + MAYV_ca_engine.R with R0_SCENARIO <- '%s').\n",
-              mayv_epi_file, MAYV_EPI_SCENARIO))
-} else {
-  M <- readRDS(mayv_epi_file)
-  if (is.null(M$wk_base)) {
-    cat("Skipped CHIKV_MAYV_epicurves.png (re-run MAYV_ca_engine.R to store weekly curves).\n")
-  } else {
-
-    qband <- function(mat, rows, lab, panel, measure) {
-      q <- apply(mat[rows, , drop = FALSE], 2, quantile, c(.025,.5,.975), na.rm = TRUE)
-      data.frame(week = seq_len(ncol(mat)), lo = q[1,], med = q[2,], hi = q[3,],
-                 scenario = lab, panel = panel, measure = measure)
-    }
-    pair <- function(mat, rho, rows, lab, panel)
-      rbind(qband(mat, rows, lab, panel, "True symptomatic"),
-            qband(mat * rho, rows, lab, panel, "Reported"))
-    ch_rows <- seq_len(nrow(wk_symp[["No vaccine (baseline)"]]))
-    ch <- rbind(
-      pair(wk_symp[["No vaccine (baseline)"]], rho_i, ch_rows, "No vaccination", "CHIKV"),
-      pair(wk_symp[["pre-outbreak | Disease-blocking"]], rho_i, ch_rows, "Disease-blocking", "CHIKV"),
-      pair(wk_symp[["pre-outbreak | Disease + infection blocking"]], rho_i, ch_rows,
-           "Disease + infection blocking", "CHIKV"))
-    mv_rows <- seq_len(M$N_DRAWS)          # ALL draws: R0 is fixed, so no conditioning
-    mv <- rbind(pair(M$wk_base, M$rho_draw, mv_rows, "No vaccination", "MAYV"),
-                pair(M$wk_vacc, M$rho_draw, mv_rows, "Disease-blocking", "MAYV"))
-    both <- rbind(ch, mv)
-    both$measure <- factor(both$measure, levels = c("True symptomatic","Reported"))
-    both$scenario <- factor(both$scenario, levels = names(scen_cols))
-    panel_labs <- c("Chikungunya",
-                    sprintf("Mayaro (fixed R0 = %.2f)", M$R0_fixed))
-    both$panel <- factor(both$panel, levels = c("CHIKV","MAYV"), labels = panel_labs)
-
-    pct_str <- function(b, v) { p <- 100*(b - v)/b; q <- quantile(p, c(.5,.025,.975), na.rm = TRUE)
-      sprintf("%.1f %% (95%% UI %.1f-%.1f %%)", q[1], q[2], q[3]) }
-    cb <- bmat[["No vaccine (baseline)"]][,"symptomatic"]
-    mb <- M$per_draw[["No vaccine (baseline)"]][mv_rows, "symptomatic"]
-    ann <- data.frame(
-      panel = factor(panel_labs, levels = panel_labs),
-      lab = c(paste0("% Reduction in predicted symptomatic cases\n",
-                     "Disease blocking only: ",
-                     pct_str(cb, bmat[["pre-outbreak | Disease-blocking"]][,"symptomatic"]), "\n",
-                     "Disease & infection blocking: ",
-                     pct_str(cb, bmat[["pre-outbreak | Disease + infection blocking"]][,"symptomatic"])),
-              paste0("% Reduction in predicted symptomatic cases\n",
-                     "Disease blocking only: ",
-                     pct_str(mb, M$per_draw[[M$vac_name]][mv_rows, "symptomatic"]))))
-
-    # Rollout band = DOSING START (campaign week + median deployment delay) to the end
-    # of the ~1/delivery-rate week rollout. Ixchiq is deployed once, so both panels use
-    # the same definition and the two bands coincide.
-    ch_dose <- timings[["pre-outbreak"]] + 2                                # median delay 2 wk
-    mv_dose <- if (!is.null(M$dose_start))   M$dose_start            else ch_dose
-    mv_len  <- if (!is.null(M$deliv_median)) round(1/M$deliv_median) else 10
-    vac_win <- data.frame(
-      panel = factor(panel_labs, levels = panel_labs),
-      xmin  = c(ch_dose,      mv_dose),
-      xmax  = c(ch_dose + 10, mv_dose + mv_len))
-
-
-    p_both <- ggplot(both, aes(week, med, colour = scenario, fill = scenario)) +
-      geom_rect(data = vac_win, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
-                inherit.aes = FALSE, fill = "#3a7d3a", alpha = .12) +
-      geom_area(data = subset(both, measure == "True symptomatic"),
-                position = "identity", alpha = .25, colour = NA) +
-      geom_line(data = subset(both, measure == "Reported"),
-                aes(linetype = measure), linewidth = .8) +
-      geom_text(data = ann, aes(x = -Inf, y = Inf, label = lab), inherit.aes = FALSE,
-                hjust = -0.02, vjust = 1.15, size = 4, lineheight = 1.05) +
-      expand_limits(y = 0) +
-      facet_wrap(~ panel, nrow = 1, scales = "free_y") +
-      scale_colour_manual(values = scen_cols, aesthetics = c("colour","fill")) +
-      scale_linetype_manual(values = c("Reported" = "dotted"),
-                            labels = c("Reported" = "Reported symptomatic cases"),
-                            name = NULL) +
-      guides(fill = guide_legend(order = 1, override.aes = list(linetype = 0, alpha = .55)),
-             colour = guide_legend(order = 1, override.aes = list(linetype = 0)),
-             linetype = guide_legend(order = 2, override.aes = list(colour = "grey25"))) +
-
-      scale_x_continuous(breaks = c(1, seq(10, T_sim, by = 10))) +
-      scale_y_continuous(labels = scales::comma) +
-      labs(x = "Week (index, 1 = 2025-W24)", y = "Predicted symptomatic cases",
-           colour = NULL, fill = NULL) +
-           # title = "Caldas Novas: predicted symptomatic cases, pre-outbreak rollout at 30% coverage",
-           # caption = "Median and 95% UI. 2025-W24 to 2026-W22.") +
-      theme_bw(11) + theme(text = element_text(size = 12), legend.position = "bottom", plot.title = element_text(face = "bold"),
-                           strip.text = element_text(face = "bold", size = 10), panel.grid.minor = element_blank())
-    print(p_both); ggsave("CHIKV_MAYV_epicurves.png", p_both, width = 11, height = 4.8, dpi = 130)
-    cat(sprintf("Saved CHIKV_MAYV_epicurves.png (CHIKV | MAYV side by side; MAYV = '%s' scenario, fixed R0 = %.2f, all %d draws).\n",
-                MAYV_EPI_SCENARIO, M$R0_fixed, M$N_DRAWS))
-  }
-}
 
 # ------------------------------------------------------------
 # 8. Residual burden under PRE-OUTBREAK vaccination (2025-W40), as a % of no
