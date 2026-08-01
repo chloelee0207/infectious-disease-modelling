@@ -43,6 +43,38 @@ FILL      <- c("No vaccination" = "grey60", "Vaccination" = "#4e79a7")
 scen_cols <- c("No vaccination" = "grey55", "Disease-blocking" = "#4393c3",
                "Disease + infection blocking" = "#d6604d")
 
+# ------------------------------------------------------------
+# FONT SIZES -- every text size in the combined figures, in one place. Tune here.
+# All values are points EXCEPT epi_annot_*, which is the annotate()/geom_text() scale
+# (roughly points / 2.845), because that text is drawn inside the panel as data.
+# ------------------------------------------------------------
+FS <- list(
+  panel_letter   = 14,  # the bold A / B / C / D (was 14 for A, 13 for B-D; unified)
+  disease_header = 12,  # "Chikungunya" / "Mayaro" headings above the B-D block
+  block_ylab     = 13,  # rotated "Cumulative burden (% of no vaccination)"
+
+  # ---- panel A, the epidemic curves
+  epi_base       = 11,  # theme_bw() base; anything not named below inherits from it
+  epi_axis_text  = 11,  # week numbers and case counts
+  epi_axis_title = 12,  # "Week (index, 1 = 2025-W24)", "Predicted symptomatic cases"
+  epi_strip      = 10,  # grey strips: "Chikungunya", "Mayaro (fixed R0 = ...)"
+  epi_annot_chik = 4,   # in-panel "% Reduction in predicted symptomatic cases", CHIKV
+  epi_annot_mayv = 3,   # the same text in the MAYV panel  (annotate scale, see above)
+  epi_legend     = 11,  # legend keys under panel A
+
+  # ---- panels B, C, D, the burden bars
+  bur_base       = 14,  # theme_bw() base for the burden blocks
+  bur_axis_x     = 11,  # "No vaccination" / "Vaccination"
+  bur_axis_y     = 11,  # 0% - 100%
+  bur_strip_x    = 10,  # top grey strips: the vaccine arm names
+  bur_strip_y    = 10,  # right grey strips: DALYs / Deaths / Healthcare costs
+
+  # ---- the separate tornado figure, CHIKV_MAYV_owsa.png
+  owsa_base      = 14,
+  owsa_title     = 12,
+  owsa_strip     = 10
+)
+
 need1 <- function(f, how) if (!file.exists(f)) stop("missing ", f, " -- ", how) else f
 G <- readRDS(need1("CHIKV_ca_engine_results.rds", "run CHIKV_ca_engine.R"))
 M <- readRDS(need1(sprintf("MAYV_ca_engine_results_%s.rds", MAYV_EPI_SCENARIO),
@@ -101,7 +133,7 @@ ch_dose <- G$timings[["pre-outbreak"]] + 2                       # median delay 
 mv_dose <- if (!is.null(M$dose_start))   M$dose_start            else ch_dose
 mv_len  <- if (!is.null(M$deliv_median)) round(1/M$deliv_median) else 10
 
-epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = 4) {
+epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = FS$epi_annot_chik) {
   d$panel <- factor(strip)
   ggplot(d, aes(week, med, colour = scenario, fill = scenario)) +
     annotate("rect", xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf,
@@ -125,12 +157,15 @@ epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = 4) {
     scale_x_continuous(breaks = c(1, seq(10, T_sim, by = 10))) +
     scale_y_continuous(labels = scales::comma) +
     labs(x = "Week (index, 1 = 2025-W24)", y = ylab, colour = NULL, fill = NULL) +
-    theme_bw(11) +
-    theme(legend.position = "bottom", strip.text = element_text(face = "bold", size = 10),
+    theme_bw(FS$epi_base) +
+    theme(legend.position = "bottom",
+          strip.text = element_text(face = "bold", size = FS$epi_strip),
           # the four keys overrun an 11in figure on one line, so the scenario guide
           # wraps to two rows rather than being shrunk until it is unreadable
-          legend.text = element_text(size = 10), legend.key.size = unit(.9, "lines"),
-          axis.text = element_text(size = 11), axis.title = element_text(size = 12),
+          legend.text = element_text(size = FS$epi_legend),
+          legend.key.size = unit(.9, "lines"),
+          axis.text  = element_text(size = FS$epi_axis_text),
+          axis.title = element_text(size = FS$epi_axis_title),
           legend.justification = "center",
           panel.grid.minor = element_blank())
 }
@@ -164,22 +199,22 @@ burden <- function(d, strip, ylab, x_axis, y_axis, tag, row_strip = FALSE) {
     scale_y_continuous(labels = function(x) paste0(x, "%"),
                        limits = c(0, 105), breaks = seq(0, 100, 25)) +
     labs(tag = tag, x = NULL, y = ylab) +
-    theme_bw(14) +
-    theme(plot.tag = element_text(face = "bold", size = 13),
+    theme_bw(FS$bur_base) +
+    theme(plot.tag = element_text(face = "bold", size = FS$panel_letter),
           plot.tag.position = c(0, 1),
-          axis.title.y = element_text(size = 10),
           # top margin gives each panel letter its own band, so B, C and D stay legible
           # instead of being squeezed against the row above
           plot.margin = margin(t = 22, r = 5.5, b = 5.5, l = 5.5),
-          axis.text.x  = if (x_axis) element_text(size = 11) else element_blank(),
+          axis.text.x  = if (x_axis) element_text(size = FS$bur_axis_x) else element_blank(),
           axis.ticks.x = if (x_axis) element_line() else element_blank(),
-          axis.text.y  = if (y_axis) element_text() else element_blank(),
+          axis.text.y  = if (y_axis) element_text(size = FS$bur_axis_y) else element_blank(),
           axis.ticks.y = if (y_axis) element_line() else element_blank(),
           strip.text.x = if (is.null(strip)) element_blank()
-                         else element_text(face = "bold", size = 10),
+                         else element_text(face = "bold", size = FS$bur_strip_x),
           # the outcome strip rides on the RIGHT-hand (MAYV) block only, so it sits at
           # the far edge of the figure and cannot collide with the B/C/D letters
-          strip.text.y = if (row_strip) element_text(face = "bold", size = 10, angle = -90)
+          strip.text.y = if (row_strip) element_text(face = "bold", size = FS$bur_strip_y,
+                                                    angle = -90)
                          else element_blank(),
           panel.grid.minor = element_blank(),
           # the bars are already named on the x axis, so a fill legend adds nothing
@@ -216,7 +251,7 @@ row_burden <- function(o, tag, strip = FALSE, x_axis = FALSE) {
 # void row rather than as titles on row B so that they read before the B, and so C and D
 # inherit them without the names being repeated three times.
 head_lab <- function(txt) ggplot() + labs(title = txt) + theme_void() +
-  theme(plot.title = element_text(face = "bold", size = 12, hjust = .5,
+  theme(plot.title = element_text(face = "bold", size = FS$disease_header, hjust = .5,
                                   margin = margin(t = 0, b = 2)),
         plot.margin = margin(0, 0, 0, 0))
 
@@ -237,7 +272,7 @@ burden_rows <- (head_lab("Chikungunya") + head_lab("Mayaro") +
 # than that row and get clipped, so it is attached to the wrapped block instead.
 with_ylab <- function(blk) wrap_elements(patchworkGrob(blk)) +
   labs(tag = YLAB) +
-  theme(plot.tag = element_text(size = 13, angle = 90), plot.tag.position = "left",
+  theme(plot.tag = element_text(size = FS$block_ylab, angle = 90), plot.tag.position = "left",
         plot.margin = margin(t = 0, r = 0, b = 0, l = 0))
 
 p_burden <- with_ylab(burden_rows)
@@ -277,11 +312,11 @@ if (!all(file.exists("CHIKV_ca_owsa.rds", "MAYV_ca_owsa.rds"))) {
                           labels = c(lower = "Lower", upper = "Upper"), name = "Bound") +
       scale_x_continuous(labels = scales::comma) +
       labs(title = ttl, x = "Symptomatic cases averted", y = NULL) +
-      theme_bw(11) +
-      theme(text = element_text(size = 14),
+      theme_bw(FS$owsa_base) +
+      theme(text = element_text(size = FS$owsa_base),
             legend.position = if (legend) "bottom" else "none",
-            plot.title = element_text(face = "bold", size = 12),
-            strip.text = element_text(face = "bold", size = 10),
+            plot.title = element_text(face = "bold", size = FS$owsa_title),
+            strip.text = element_text(face = "bold", size = FS$owsa_strip),
             panel.grid.minor = element_blank())
   }
   g <- tor(ca, blA, "A   Chikungunya", FALSE) + tor(mb, blB, "B   Mayaro", TRUE) +
@@ -295,7 +330,8 @@ if (!all(file.exists("CHIKV_ca_owsa.rds", "MAYV_ca_owsa.rds"))) {
 # The disease labels sit once, on the strips over row A; B-D inherit those columns.
 # ------------------------------------------------------------
 pA_c <- pE_c + labs(tag = "A") +
-  theme(plot.tag = element_text(face = "bold", size = 13), plot.tag.position = c(0, 1))
+  theme(plot.tag = element_text(face = "bold", size = FS$panel_letter),
+        plot.tag.position = c(0, 1))
 # Both epicurve panels carry identical keys, so MAYV's copy is dropped at the SCALE
 # level -- a theme(legend.position = "none") would be undone by the shared `&` theme.
 pA_m <- pE_m + guides(fill = "none", colour = "none", linetype = "none")
@@ -307,7 +343,7 @@ pA_m <- pE_m + guides(fill = "none", colour = "none", linetype = "none")
 # PATCHWORK's theme, so its size must be set here with `&`, not inside epicurve().
 row_A <- pA_c + pA_m + plot_layout(widths = c(1, 1), guides = "collect") &
   theme(legend.position = "bottom", legend.justification = "center",
-        legend.text = element_text(size = 11), legend.key.size = unit(1.1, "lines"),
+        legend.text = element_text(size = FS$epi_legend), legend.key.size = unit(1.1, "lines"),
         plot.margin = margin(t = 5.5, r = 5.5, b = 2, l = 5.5))
 
 # the burden panels are two bars wide, so the block is inset rather than stretched
