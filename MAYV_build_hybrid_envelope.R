@@ -9,11 +9,20 @@
 #     Aedes vector, well constrained by CHIKV case data.
 #   * DRY-SEASON TAIL (2026-W10 .. 2026-W22): the CHIRPS climatological rainfall
 #     shape (caldas_rain_season.rds, from rainfall_season.R), scaled to join
-#     continuously at 2026-W10.
+#     continuously at 2026-W10. Rainfall is exogenous to the epidemic, so unlike the
+#     fitted beta_t it gives a seasonal shape uncontaminated by susceptible depletion.
 #
-# WHY. The CHIKV beta_t's post-outbreak tail is a spline artefact -- flat (~0.9) and
-# unconstrained (no CHIKV cases there), with no real dry season. Against MAYV's high
-# R0 that flat tail keeps R_eff ~ 1, so the outbreak never resolves inside the window.
+# WHY. NOT for lack of data: 39.5% of the observed CHIKV cases (3,237) fall at or after
+# the 2026-W10 join, and only 2 of the 52 weeks have none. The reason is CONFOUNDING with
+# susceptible depletion. Over the tail the susceptible pool drops to 45% of its starting
+# value by 2026-W10 and 21% by 2026-W22, which on its own explains the 98% fall in
+# reported cases -- so the likelihood applies no pressure for beta_t to decline, and it
+# stays flat (0.638 -> 0.630, -1.2%). The tail therefore carries depletion, not
+# seasonality, and cannot be read as a seasonal signal.
+#
+# Transplanting it to MAYV would be wrong twice over: the MAYV population is ~93%
+# susceptible, so there is no depletion to damp transmission, and a flat beta against
+# MAYV's higher R0 holds R_eff ~ 1 so the outbreak never resolves inside the window.
 # The rainfall dry season (dropping to ~0.12 by 2026-W22) crashes R_eff after the peak,
 # so the outbreak collapses -- as CHIKV's own (lower-R0) outbreak does. Result: a
 # 52-week envelope, 2025-W24 -> 2026-W22 (CHIKV-aligned window), inside which the
