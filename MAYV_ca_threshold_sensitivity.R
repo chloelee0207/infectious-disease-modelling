@@ -6,6 +6,9 @@
 # immunity per draw, paired with freshly drawn vaccine parameters), so the 95% UIs are
 # comparable with the headline table.
 #
+# The vaccine draws are read from MAYV_ca_engine_results_high.rds rather than redrawn, so
+# the R0 = 2.5 / seed-week-1 cell reproduces the headline result exactly.
+#
 #   1. TRANSMISSION POTENTIAL. Baseline and averted symptomatic cases across fixed R0,
 #      reported alongside the reproduction numbers the model actually runs at. R0 here
 #      is the WET-SEASON PEAK (the envelope is peak-normalised), so the operative
@@ -31,14 +34,15 @@ season <- { v <- as.numeric(readRDS("caldas_hybrid_season.rds")); v / max(v) }  
 target_age <- rep(0, A); target_age[4:8] <- 1
 start_pre <- 17L; immun_delay <- 2                        # 2025-W40, matching CHIKV
 
-# vaccine parameters, same distributions as MAYV_ca_engine.R; fixed seed for reproducibility
-set.seed(20260802)
-beta_from_ci <- function(m, lo, hi) { v <- ((hi-lo)/(2*1.96))^2; k <- m*(1-m)/v-1; c(a=m*k, b=(1-m)*k) }
-cov_ab <- beta_from_ci(0.30, 0.20, 0.40); veb_ab <- beta_from_ci(0.50, 0.25, 0.75)
-del_ab <- beta_from_ci(0.10, 0.09, 0.11)
-lhs <- function(n) (sample.int(n) - runif(n)) / n
-cov_d <- qbeta(lhs(ND), cov_ab["a"], cov_ab["b"]); veb_d <- qbeta(lhs(ND), veb_ab["a"], veb_ab["b"])
-del_d <- qbeta(lhs(ND), del_ab["a"], del_ab["b"]);  dly_d <- 1 + round(2 * lhs(ND))
+# Vaccine parameters are READ FROM THE ENGINE, not redrawn. Redrawing from the same
+# distributions gives a different Monte Carlo realisation, which would make the R0 = 2.5
+# / seed-week-1 row disagree with the headline results by a case or two -- a discrepancy
+# a reader would reasonably query. Reusing the engine's draws makes that row reproduce
+# the main analysis exactly, so the table is a strict extension of it.
+Mres <- readRDS("MAYV_ca_engine_results_high.rds")
+stopifnot(!is.null(Mres$del_d))          # re-run MAYV_ca_engine.R if this fails
+cov_d <- Mres$cov_d; veb_d <- Mres$veb_d; del_d <- Mres$del_d; dly_d <- Mres$delay_d
+stopifnot(length(cov_d) == ND, length(veb_d) == ND, length(del_d) == ND, length(dly_d) == ND)
 
 q3  <- function(x) quantile(x, c(.5, .025, .975), na.rm = TRUE)
 fmt <- function(x, dp = 0) { q <- q3(x); sprintf("%s (%s-%s)",
@@ -106,7 +110,7 @@ notes <- data.frame(item = c(
   sprintf("R_eff = R0 x season(t) x S/N, evaluated at the START of the epidemic with the median prior immunity (%.1f%%, S/N = %.3f). Depletion lowers it further as the epidemic runs.", 100*imm_med, SN),
   "Held at ONE infectious person in every row. Larger seeds were used only as a regime diagnostic and are not a plausible base case.",
   "Absolute burden is highly sensitive to seeding week; % averted is nearly invariant, because the vaccine's effect depends on the timing overlap between the epidemic and the coverage curve, and the seasonal envelope pins the peak regardless of seeding.",
-  sprintf("%d. Transmission draws (gamma, sigma, rho, prop_symp, prior immunity) are the ensemble's; vaccine parameters are redrawn here with a fixed seed.", ND),
+  sprintf("%d. Transmission draws (gamma, sigma, rho, prop_symp, prior immunity) come from the ensemble and vaccine draws from the engine, so the R0 = 2.5 / seed-week-1 cell reproduces the headline result exactly.", ND),
   "Pre-outbreak campaign at 2025-W40, coverage of eligible 18-59 Beta(30%, 20-40%), disease-blocking efficacy Beta(50%, 25-75%), VE_inf = 0."),
   stringsAsFactors = FALSE)
 
