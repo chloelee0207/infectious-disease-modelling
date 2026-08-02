@@ -61,13 +61,18 @@ one <- function(i, R0, seed_week) {
     target_age, cov, del_d[i], start_pre + dly_d[i], VE_inf = 0, VE_block = vb,
     immun_delay = immun_delay, prop_symp = E$prop_symp[i], E0 = E$E0, seed_week = seed_week)
   b <- sim(0, 0); v <- sim(cov_d[i], veb_d[i]); psi <- E$prop_symp[i]
-  c(base = psi * sum(b$new_infections),
-    vacc = sum(colSums(psi * v$new_infections * (1 - veb_d[i] * v$coverage_frac))))
+  c(base  = psi * sum(b$new_infections),
+    vacc  = sum(colSums(psi * v$new_infections * (1 - veb_d[i] * v$coverage_frac))),
+    doses = sum(v$total_used_age))
 }
 sweep_cfg <- function(R0, seed_week) {
-  m <- vapply(seq_len(ND), function(i) one(i, R0, seed_week), numeric(2))
-  list(base = m["base", ], averted = m["base", ] - m["vacc", ],
-       pct = 100 * (m["base", ] - m["vacc", ]) / m["base", ])
+  m <- vapply(seq_len(ND), function(i) one(i, R0, seed_week), numeric(3))
+  av <- m["base", ] - m["vacc", ]
+  list(base = m["base", ], averted = av, doses = m["doses", ],
+       pct = 100 * av / m["base", ],
+       # per 100,000 doses: puts MAYV in the same unit as the CHIKV results, so the two
+       # can be set side by side without dividing one model by the other
+       per100k = 1e5 * av / m["doses", ])
 }
 
 # ---- 1. transmission potential ----------------------------------------------
@@ -92,6 +97,7 @@ tp <- do.call(rbind, lapply(seq_along(R0_GRID), function(k) {
                                              quantile(w, .975)) },
              baseline_symptomatic = fmt(r$base),
              averted_symptomatic  = fmt(r$averted),
+             averted_per_100k_doses = fmt(r$per100k),
              pct_averted          = fmt(r$pct, 1),
              stringsAsFactors = FALSE) }))
 
@@ -105,13 +111,14 @@ sd <- do.call(rbind, lapply(SEED_GRID, function(sw) {
              R_eff_at_seeding  = round(2.5 * season[sw] * SN, 3),
              baseline_symptomatic = fmt(r$base),
              averted_symptomatic  = fmt(r$averted),
+             averted_per_100k_doses = fmt(r$per100k),
              pct_averted          = fmt(r$pct, 2),
              stringsAsFactors = FALSE) }))
 
 notes <- data.frame(item = c(
   "Scope", "R0 convention", "Why R_eff and not mean R0(t)", "Susceptible factor",
   "R_eff uncertainty", "Comparison with published R0",
-  "Seed size", "Seeding finding", "Draws", "Vaccine"),
+  "Seed size", "Seeding finding", "Per 100,000 doses", "Draws", "Vaccine"),
   detail = c(
   "Structural sensitivity for MAYV. Both sheets use the same 1000-draw ensemble as the main results.",
   "R0 is the WET-SEASON PEAK: the seasonal envelope is normalised to a peak of 1, so R0(t) = R0 x season(t) <= R0 at all times.",
@@ -120,6 +127,7 @@ notes <- data.frame(item = c(
   "R0 is fixed per scenario and has no interval by construction, but R_eff does: its 95% UI comes entirely from the sampled prior immunity, the only stochastic term in R0 x season(t) x S/N.",
   sprintf("Caicedo et al. 2021 derive R0 from age-stratified seroprevalence using catalytic models (P(a) = 1-exp(-lambda*a)), so their 2.1-2.9 for the Amazon is an ENDEMIC-AVERAGE reproduction number, not a seasonal peak. Taking 2.50 as the PEAK is therefore conservative: it implies a season-averaged R0 of %.2f, and reproducing 2.50 as an annual mean would need a peak of %.2f. The peak is instead comparable to their outbreak-derived estimate, 2.2 (95%% CrI 0.8-4.8) from the 1954-55 Santa Cruz epidemic.", 2.5*mean(season), 2.5/mean(season)),
   "Held at ONE infectious person in every row. Larger seeds were used only as a regime diagnostic and are not a plausible base case.",
+  "Averted symptomatic cases per 100,000 doses administered. Ixchiq is deployed once, so the CHIKV and MAYV models consume the same doses (19,584 vs 19,589 median); normalising by doses therefore puts the two pathogens in a shared unit with a natural zero, without dividing one model by the other. Doses do not vary with R0 or seeding week -- the campaign is fixed -- so this column is proportional to averted cases within each table.",
   "Absolute burden is highly sensitive to seeding week; % averted is nearly invariant, because the vaccine's effect depends on the timing overlap between the epidemic and the coverage curve, and the seasonal envelope pins the peak regardless of seeding.",
   sprintf("%d. Transmission draws (gamma, sigma, rho, prop_symp, prior immunity) come from the ensemble and vaccine draws from the engine, so the R0 = 2.5 / seed-week-1 cell reproduces the headline result exactly.", ND),
   "Pre-outbreak campaign at 2025-W40, coverage of eligible 18-59 Beta(30%, 20-40%), disease-blocking efficacy Beta(50%, 25-75%), VE_inf = 0."),
