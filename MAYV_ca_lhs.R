@@ -205,6 +205,22 @@ cat(sprintf("FIXED (not sampled): R0 = %.2f  (%s scenario, %s)\n",
             R0_VALUE, R0_SCENARIO, if (r0_is_peak) "seasonal-peak R_eff" else "annual-mean"))
 
 # ------------------------------------------------------------
+# Seasonality summary. R0 above is the WET-SEASON PEAK, because the envelope is
+# peak-normalised (r0_is_peak). The mean of season(t) is well below 1, so the
+# year-average transmission intensity is much lower than the headline R0 -- report both,
+# or a reader will read "R0 = 2.50" as an unforced R0 and expect a ~90% attack rate.
+# The model therefore runs close to the epidemic threshold for most of the year, which
+# is why burden is a steep function of R0 rather than a saturating one.
+# ------------------------------------------------------------
+season_mean <- mean(season); imm_med <- exp(imm_meanlog)   # lognormal median
+cat(sprintf("Seasonality: season(t) peak %.3f, MEAN %.4f, min %.3f; %d of %d weeks above 0.5\n",
+            max(season), season_mean, min(season), sum(season > 0.5), length(season)))
+cat(sprintf("Implied MEAN R0(t) = %.3f; mean R_eff at S/N = %.3f is %.3f (peak R_eff %.3f); %d of %d weeks with R_eff > 1\n",
+            R0_VALUE*season_mean, 1-imm_med, R0_VALUE*season_mean*(1-imm_med),
+            R0_VALUE*max(season)*(1-imm_med),
+            sum(R0_VALUE*season*(1-imm_med) > 1), length(season)))
+
+# ------------------------------------------------------------
 # 6. One forward run -> weekly reported / infections + summary scalars
 #    imm = flat prior-immune fraction; sets S(0), susceptible_pop and the seed split.
 # ------------------------------------------------------------

@@ -49,25 +49,25 @@ scen_cols <- c("No vaccination" = "grey55", "Disease-blocking" = "#4393c3",
 # (roughly points / 2.845), because that text is drawn inside the panel as data.
 # ------------------------------------------------------------
 FS <- list(
-  panel_letter   = 14,  # the bold A / B / C / D (was 14 for A, 13 for B-D; unified)
-  disease_header = 12,  # "Chikungunya" / "Mayaro" headings above the B-D block
+  panel_letter   = 15,  # the bold A / B / C / D (was 14 for A, 13 for B-D; unified)
+  disease_header = 13,  # "Chikungunya" / "Mayaro" headings above the B-D block
   block_ylab     = 13,  # rotated "Cumulative burden (% of no vaccination)"
 
   # ---- panel A, the epidemic curves
-  epi_base       = 11,  # theme_bw() base; anything not named below inherits from it
-  epi_axis_text  = 11,  # week numbers and case counts
-  epi_axis_title = 12,  # "Week (index, 1 = 2025-W24)", "Predicted symptomatic cases"
-  epi_strip      = 10,  # grey strips: "Chikungunya", "Mayaro (fixed R0 = ...)"
-  epi_annot_chik = 4,   # in-panel "% Reduction in predicted symptomatic cases", CHIKV
-  epi_annot_mayv = 3,   # the same text in the MAYV panel  (annotate scale, see above)
+  epi_base       = 12,  # theme_bw() base; anything not named below inherits from it
+  epi_axis_text  = 12,  # week numbers and case counts
+  epi_axis_title = 13,  # "Week (index, 1 = 2025-W24)", "Predicted symptomatic cases"
+  epi_strip      = 12,  # grey strips: "Chikungunya", "Mayaro (fixed R0 = ...)"
+  epi_annot_chik = 5,   # in-panel "% Reduction in predicted symptomatic cases", CHIKV
+  epi_annot_mayv = 5,   # the same text in the MAYV panel  (annotate scale, see above)
   epi_legend     = 11,  # legend keys under panel A
 
   # ---- panels B, C, D, the burden bars
   bur_base       = 14,  # theme_bw() base for the burden blocks
-  bur_axis_x     = 11,  # "No vaccination" / "Vaccination"
-  bur_axis_y     = 11,  # 0% - 100%
-  bur_strip_x    = 10,  # top grey strips: the vaccine arm names
-  bur_strip_y    = 10,  # right grey strips: DALYs / Deaths / Healthcare costs
+  bur_axis_x     = 12,  # "No vaccination" / "Vaccination"
+  bur_axis_y     = 12,  # 0% - 100%
+  bur_strip_x    = 12,  # top grey strips: the vaccine arm names
+  bur_strip_y    = 12,  # right grey strips: DALYs / Deaths / Healthcare costs
 
   # ---- the separate tornado figure, CHIKV_MAYV_owsa.png
   owsa_base      = 14,
