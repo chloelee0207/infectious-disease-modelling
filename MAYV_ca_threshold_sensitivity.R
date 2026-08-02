@@ -72,15 +72,22 @@ sweep_cfg <- function(R0, seed_week) {
 R0_GRID  <- c(1.2, 2.0, 2.4, 2.5, 2.7, 3.0)
 R0_LABEL <- c("1.2 (incidental transmission scenario)", "2.0", "2.4",
               "2.5 (future urban-adapted transmission scenario)", "2.7", "3.0")
-imm_med <- median(E$immune_frac); SN <- 1 - imm_med
+# R0 is fixed, but R_eff = R0 x season(t) x S/N inherits the sampled prior immunity, so
+# it DOES carry a 95% UI. Reported at the start of the epidemic; depletion lowers it
+# further as the outbreak runs, though at MAYV's attack rates that shift is negligible.
+SN_d <- 1 - E$immune_frac; imm_med <- median(E$immune_frac); SN <- median(SN_d)
+reff <- function(x, d = 3) sprintf("%.*f (%.*f-%.*f)", d, median(x), d,
+                                   quantile(x, .025), d, quantile(x, .975))
 cat(sprintf("Propagating %d draws over %d R0 values...\n", ND, length(R0_GRID)))
 tp <- do.call(rbind, lapply(seq_along(R0_GRID), function(k) {
   R0 <- R0_GRID[k]; r <- sweep_cfg(R0, E$seed_week)
   cat(sprintf("  R0 = %.1f done\n", R0))
   data.frame(fixed_R0 = R0_LABEL[k],
-             mean_R_eff = round(R0 * mean(season) * SN, 3),
-             peak_R_eff = round(R0 * max(season)  * SN, 3),
-             weeks_R_eff_above_1 = sum(R0 * season * SN > 1),
+             mean_R_eff = reff(R0 * mean(season) * SN_d),
+             peak_R_eff = reff(R0 * max(season)  * SN_d),
+             weeks_R_eff_above_1 = { w <- sapply(SN_d, function(z) sum(R0 * season * z > 1))
+                                     sprintf("%d (%d-%d)", median(w), quantile(w, .025),
+                                             quantile(w, .975)) },
              baseline_symptomatic = fmt(r$base),
              averted_symptomatic  = fmt(r$averted),
              pct_averted          = fmt(r$pct, 1),
@@ -102,12 +109,15 @@ sd <- do.call(rbind, lapply(SEED_GRID, function(sw) {
 
 notes <- data.frame(item = c(
   "Scope", "R0 convention", "Why R_eff and not mean R0(t)", "Susceptible factor",
+  "R_eff uncertainty", "Comparison with published R0",
   "Seed size", "Seeding finding", "Draws", "Vaccine"),
   detail = c(
   "Structural sensitivity for MAYV. Both sheets use the same 1000-draw ensemble as the main results.",
   "R0 is the WET-SEASON PEAK: the seasonal envelope is normalised to a peak of 1, so R0(t) = R0 x season(t) <= R0 at all times.",
   "Mean R0(t) is mean R_eff without the susceptible factor. R_eff is what determines whether transmission grows, so only R_eff is tabulated.",
-  sprintf("R_eff = R0 x season(t) x S/N, evaluated at the START of the epidemic with the median prior immunity (%.1f%%, S/N = %.3f). Depletion lowers it further as the epidemic runs.", 100*imm_med, SN),
+  sprintf("R_eff = R0 x season(t) x S/N, evaluated at the START of the epidemic. Prior immunity is %.1f%% (95%% UI 3.0-18.0%%), so S/N = %.3f (0.820-0.970). Depletion lowers R_eff further as the epidemic runs, though negligibly at MAYV attack rates.", 100*imm_med, SN),
+  "R0 is fixed per scenario and has no interval by construction, but R_eff does: its 95% UI comes entirely from the sampled prior immunity, the only stochastic term in R0 x season(t) x S/N.",
+  "Published MAYV R0 figures (e.g. Caicedo et al. 2021) are BASIC reproduction numbers in a fully susceptible population, so the comparable model quantity is the scenario R0 itself, not R_eff. R_eff is lower only because it applies Caldas Novas seroprevalence. NOTE: where published R0 is derived from seroprevalence via the final-size relation, it summarises a whole epidemic rather than its seasonal peak, so it is closer in meaning to the model's season-averaged R0 than to the peak -- check the source before claiming agreement.",
   "Held at ONE infectious person in every row. Larger seeds were used only as a regime diagnostic and are not a plausible base case.",
   "Absolute burden is highly sensitive to seeding week; % averted is nearly invariant, because the vaccine's effect depends on the timing overlap between the epidemic and the coverage curve, and the seasonal envelope pins the peak regardless of seeding.",
   sprintf("%d. Transmission draws (gamma, sigma, rho, prop_symp, prior immunity) come from the ensemble and vaccine draws from the engine, so the R0 = 2.5 / seed-week-1 cell reproduces the headline result exactly.", ND),
