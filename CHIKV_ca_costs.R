@@ -194,6 +194,10 @@ sh_averted <- do.call(rbind, lapply(vac, function(s) {
                                                      G$per_draw[[s]][, "doses"]), 2),
              cost_averted_per_dose_USD2026 = fmt(q3(u[, "total_direct_medical"] /
                                                      G$per_draw[[s]][, "doses"]), 2),
+             # per 100,000 doses: the same quantity in the units used by
+             # averted_per_100k_doses, so cost sits beside the health outcomes
+             cost_averted_per_100k_doses_USD2026 = fmt(q3(1e5 * u[, "total_direct_medical"] /
+                                                     G$per_draw[[s]][, "doses"]), 0),
              stringsAsFactors = FALSE) }))
 
 # ------------------------------------------------------------

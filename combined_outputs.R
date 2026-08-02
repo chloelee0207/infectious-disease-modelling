@@ -10,6 +10,7 @@
 #   2. combined_residual_burden.png   burden as % of no vaccination
 #   3. CHIKV_MAYV_owsa.png            tornado, CHIKV over MAYV
 #   4. combined_master.png            A epicurves / B DALYs / C deaths / D healthcare cost
+#   5. combined_per_100k_doses.xlsx   benefit per 100,000 doses, CHIKV beside MAYV
 #
 # Pure presentation: reads the .rds files the model scripts write and does no SEIR or
 # Monte Carlo of its own, so every value here shares the engines' per-draw propagation.
@@ -28,7 +29,7 @@
 #             MAYV_ca_engine.R  -> MAYV_ca_costs.R  -> MAYV_ca_outputs.R
 #             (CHIKV_ca_owsa.R, MAYV_ca_owsa.R for figure 3)  ->  this file
 # ============================================================
-suppressMessages({library(dplyr); library(ggplot2); library(patchwork)})
+suppressMessages({library(dplyr); library(ggplot2); library(patchwork); library(writexl)})
 
 # Which MAYV scenario to show. Reads the scenario-TAGGED results file so the figures
 # never depend on which scenario happened to run last.
@@ -355,3 +356,81 @@ master <- row_A / row_BCD + plot_layout(heights = c(1.3, 2.7))
 ggsave("combined_master.png", master, width = 13, height = 12.5, dpi = 150)
 ggsave("combined_master.pdf", master, width = 11, height = 12.5)
 cat("Saved combined_master.png / .pdf (A epicurves, B DALYs, C deaths, D healthcare cost).\n")
+
+# ------------------------------------------------------------
+# 5. Benefit per 100,000 doses, CHIKV beside MAYV.
+# Ixchiq is deployed ONCE, so both models cost the same doses: 19,584 (CHIKV) vs 19,589
+# (MAYV), a 0.02% difference from sampling alone. Normalising by doses therefore puts the
+# two pathogens in a shared unit WITHOUT dividing one by the other -- the Mayaro figure is
+# the additional return on doses already being bought for chikungunya, expressed as an
+# absolute quantity rather than a ratio.
+#
+# The combined column adds the two per draw. CHIKV and MAYV draws are NOT paired (separate
+# models, separate LHS designs), so one is randomly permuted before adding: that samples
+# the sum correctly under the assumption the two epidemics are independent, which is
+# stated rather than hidden. The combined total is conditional on BOTH outbreaks occurring
+# as modelled -- the Mayaro one is hypothetical.
+# ------------------------------------------------------------
+per100k <- function(pd, base, o, doses) {
+  r <- 1e5 * (base[, o] - pd[, o]) / doses; r[!is.finite(r) | r < 0] <- NA; r
+}
+OUT100 <- c(infections = "Infections", symptomatic = "Symptomatic",
+            hospitalisations = "Hospitalisations", deaths = "Deaths", daly = "DALYs")
+gb <- G$per_draw[["No vaccine (baseline)"]]; mbase <- M$per_draw[["No vaccine (baseline)"]]
+ch_db <- G$per_draw[["pre-outbreak | Disease-blocking"]]
+ch_di <- G$per_draw[["pre-outbreak | Disease + infection blocking"]]
+mv_db <- M$per_draw[[M$vac_name]]
+set.seed(20260802); perm <- sample.int(nrow(mv_db))     # independence pairing, reproducible
+
+fmt100 <- function(v, d = 0) { q <- quantile(v, c(.5,.025,.975), na.rm = TRUE)
+  sprintf("%s (%s-%s)", formatC(round(q[1],d), big.mark=",", format="f", digits=d),
+          formatC(round(q[2],d), big.mark=",", format="f", digits=d),
+          formatC(round(q[3],d), big.mark=",", format="f", digits=d)) }
+
+rows <- lapply(names(OUT100), function(o) {
+  a <- per100k(ch_db, gb, o, ch_db[, "doses"])
+  b <- per100k(ch_di, gb, o, ch_di[, "doses"])
+  m <- per100k(mv_db, mbase, o, mv_db[, "doses"])
+  data.frame(outcome = OUT100[[o]],
+             CHIKV_disease_blocking = fmt100(a),
+             CHIKV_disease_and_infection = fmt100(b),
+             MAYV_disease_blocking = fmt100(m),
+             combined_CHIKV_db_plus_MAYV = fmt100(a + m[perm]),
+             stringsAsFactors = FALSE) })
+
+# healthcare cost, if the cost layer has been run
+cc <- if (file.exists("CHIKV_ca_costs.rds")) readRDS("CHIKV_ca_costs.rds") else NULL
+cm <- if (file.exists("MAYV_ca_costs.rds"))  readRDS("MAYV_ca_costs.rds")  else NULL
+if (!is.null(cc) && !is.null(cm)) {
+  K <- 1.47761 / 5.1257                                   # BRL2019 -> USD2026, as in the cost scripts
+  cost100 <- function(cp, nm, doses) {
+    a <- (cp[["No vaccine (baseline)"]][, "total_direct_medical"] -
+          cp[[nm]][, "total_direct_medical"]) * K
+    r <- 1e5 * a / doses; r[!is.finite(r)] <- NA; r }
+  a <- cost100(cc$cost_pd, "pre-outbreak | Disease-blocking", ch_db[, "doses"])
+  b <- cost100(cc$cost_pd, "pre-outbreak | Disease + infection blocking", ch_di[, "doses"])
+  m <- cost100(cm$cost_pd, names(cm$cost_pd)[2], mv_db[, "doses"])
+  rows[[length(rows)+1]] <- data.frame(outcome = "Healthcare cost (US$ 2026)",
+    CHIKV_disease_blocking = fmt100(a), CHIKV_disease_and_infection = fmt100(b),
+    MAYV_disease_blocking = fmt100(m), combined_CHIKV_db_plus_MAYV = fmt100(a + m[perm]),
+    stringsAsFactors = FALSE)
+} else cat("NOTE: cost layers not found -- healthcare-cost row omitted from the per-100k table.\n")
+
+per100k_tbl <- do.call(rbind, rows)
+p100_notes <- data.frame(item = c("Unit", "Why doses", "Why not a ratio", "Combined column",
+                                  "Deaths", "Doses"),
+  detail = c(
+  "Outcomes averted per 100,000 doses administered, median (95% UI), computed per draw.",
+  "Ixchiq is deployed once, so both models consume the same doses. Doses are the shared input, which makes per-dose benefit comparable across pathogens without either model being divided by the other.",
+  "Dividing Mayaro cases averted by chikungunya cases averted compares two different models on a scale with no natural zero. Per-dose benefit has a natural zero (no benefit) and is additive.",
+  "CHIKV disease-blocking + MAYV, added per draw with MAYV randomly permuted, since the two models' draws are not paired. Assumes the two epidemics are independent, and is conditional on BOTH occurring as modelled -- the Mayaro outbreak is hypothetical.",
+  "MAYV deaths are identically zero (MAYV_ZERO_DEATHS = TRUE fixes the CFR at 0), so the Mayaro column is 0 by construction.",
+  sprintf("CHIKV %s, MAYV %s (median), a %.2f%% difference from sampling alone.",
+          format(round(median(ch_db[, "doses"])), big.mark=","),
+          format(round(median(mv_db[, "doses"])), big.mark=","),
+          100*abs(median(mv_db[,"doses"])/median(ch_db[,"doses"]) - 1))),
+  stringsAsFactors = FALSE)
+writexl::write_xlsx(list(averted_per_100k_doses = per100k_tbl, notes = p100_notes),
+                    "combined_per_100k_doses.xlsx")
+cat("Saved combined_per_100k_doses.xlsx (CHIKV beside MAYV, per 100,000 doses).\n")
+print(per100k_tbl, row.names = FALSE)
