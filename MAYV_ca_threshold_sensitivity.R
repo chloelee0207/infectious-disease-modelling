@@ -44,6 +44,8 @@ stopifnot(!is.null(Mres$del_d))          # re-run MAYV_ca_engine.R if this fails
 cov_d <- Mres$cov_d; veb_d <- Mres$veb_d; del_d <- Mres$del_d; dly_d <- Mres$delay_d
 stopifnot(length(cov_d) == ND, length(veb_d) == ND, length(del_d) == ND, length(dly_d) == ND)
 
+wk_lab <- function(i) { o <- 23 + i
+  if (o <= 53) sprintf("2025-W%02d", o) else sprintf("2026-W%02d", o - 53) }
 q3  <- function(x) quantile(x, c(.5, .025, .975), na.rm = TRUE)
 fmt <- function(x, dp = 0) { q <- q3(x); sprintf("%s (%s-%s)",
         formatC(round(q[1], dp), big.mark=",", format="f", digits=dp),
@@ -95,7 +97,6 @@ tp <- do.call(rbind, lapply(seq_along(R0_GRID), function(k) {
 
 # ---- 2. seeding week --------------------------------------------------------
 SEED_GRID <- c(1, 9, 17, 25)
-wk_lab <- function(i) { o <- 23 + i; if (o <= 53) sprintf("2025-W%02d", o) else sprintf("2026-W%02d", o-53) }
 cat("Propagating seeding weeks...\n")
 sd <- do.call(rbind, lapply(SEED_GRID, function(sw) {
   r <- sweep_cfg(2.5, sw); cat(sprintf("  seed week %d done\n", sw))
@@ -117,14 +118,53 @@ notes <- data.frame(item = c(
   "Mean R0(t) is mean R_eff without the susceptible factor. R_eff is what determines whether transmission grows, so only R_eff is tabulated.",
   sprintf("R_eff = R0 x season(t) x S/N, evaluated at the START of the epidemic. Prior immunity is %.1f%% (95%% UI 3.0-18.0%%), so S/N = %.3f (0.820-0.970). Depletion lowers R_eff further as the epidemic runs, though negligibly at MAYV attack rates.", 100*imm_med, SN),
   "R0 is fixed per scenario and has no interval by construction, but R_eff does: its 95% UI comes entirely from the sampled prior immunity, the only stochastic term in R0 x season(t) x S/N.",
-  "Published MAYV R0 figures (e.g. Caicedo et al. 2021) are BASIC reproduction numbers in a fully susceptible population, so the comparable model quantity is the scenario R0 itself, not R_eff. R_eff is lower only because it applies Caldas Novas seroprevalence. NOTE: where published R0 is derived from seroprevalence via the final-size relation, it summarises a whole epidemic rather than its seasonal peak, so it is closer in meaning to the model's season-averaged R0 than to the peak -- check the source before claiming agreement.",
+  sprintf("Caicedo et al. 2021 derive R0 from age-stratified seroprevalence using catalytic models (P(a) = 1-exp(-lambda*a)), so their 2.1-2.9 for the Amazon is an ENDEMIC-AVERAGE reproduction number, not a seasonal peak. Taking 2.50 as the PEAK is therefore conservative: it implies a season-averaged R0 of %.2f, and reproducing 2.50 as an annual mean would need a peak of %.2f. The peak is instead comparable to their outbreak-derived estimate, 2.2 (95%% CrI 0.8-4.8) from the 1954-55 Santa Cruz epidemic.", 2.5*mean(season), 2.5/mean(season)),
   "Held at ONE infectious person in every row. Larger seeds were used only as a regime diagnostic and are not a plausible base case.",
   "Absolute burden is highly sensitive to seeding week; % averted is nearly invariant, because the vaccine's effect depends on the timing overlap between the epidemic and the coverage curve, and the seasonal envelope pins the peak regardless of seeding.",
   sprintf("%d. Transmission draws (gamma, sigma, rho, prop_symp, prior immunity) come from the ensemble and vaccine draws from the engine, so the R0 = 2.5 / seed-week-1 cell reproduces the headline result exactly.", ND),
   "Pre-outbreak campaign at 2025-W40, coverage of eligible 18-59 Beta(30%, 20-40%), disease-blocking efficacy Beta(50%, 25-75%), VE_inf = 0."),
   stringsAsFactors = FALSE)
 
-write_xlsx(list(transmission_potential = tp, seeding_week = sd, notes = notes),
+
+# ---- 3. the seasonal envelope itself -----------------------------------------
+# Documents season(t) week by week, and the arithmetic behind mean(season) = 0.5422.
+# caldas_hybrid_season.rds is stored MEAN-1 (mean = 1 by construction). The engine
+# peak-normalises it, season = v / max(v), so
+#     mean(season) = mean(v) / max(v) = 1 / max(v) = 1 / 1.8443 = 0.5422
+# i.e. the 0.5422 is not a separate estimate -- it is the reciprocal of the mean-1
+# envelope's peak, and follows entirely from the peak-normalisation convention.
+v_mean1 <- as.numeric(readRDS("caldas_hybrid_season.rds"))
+SPLICE  <- 40L                                   # 2026-W10; weeks 1-40 CHIKV beta, 41-52 rainfall
+env <- data.frame(
+  week_index      = seq_along(v_mean1),
+  epi_week        = vapply(seq_along(v_mean1), wk_lab, character(1)),
+  source          = ifelse(seq_along(v_mean1) <= SPLICE,
+                           "fitted CHIKV beta_t", "CHIRPS rainfall climatology"),
+  envelope_mean1  = round(v_mean1, 4),
+  season_peaknorm = round(v_mean1 / max(v_mean1), 4),
+  R0_t_at_2.5     = round(2.5 * v_mean1 / max(v_mean1), 3),
+  R_eff_t_at_2.5  = round(2.5 * v_mean1 / max(v_mean1) * SN, 3),
+  stringsAsFactors = FALSE)
+env_summary <- data.frame(quantity = c(
+  "mean of the stored mean-1 envelope", "max of the stored mean-1 envelope",
+  "mean(season) after peak-normalisation", "derivation",
+  "min(season)", "weeks with season > 0.5", "peak week",
+  "source split", "why the tail is rainfall"),
+  value = c(
+  sprintf("%.6f (1 by construction)", mean(v_mean1)),
+  sprintf("%.6f", max(v_mean1)),
+  sprintf("%.4f", mean(v_mean1)/max(v_mean1)),
+  sprintf("mean(season) = mean(v)/max(v) = 1/%.4f = %.4f -- a consequence of peak-normalising, not a separate estimate", max(v_mean1), 1/max(v_mean1)),
+  sprintf("%.4f", min(v_mean1)/max(v_mean1)),
+  sprintf("%d of %d", sum(v_mean1/max(v_mean1) > 0.5), length(v_mean1)),
+  sprintf("week %d (%s)", which.max(v_mean1), wk_lab(which.max(v_mean1))),
+  sprintf("weeks 1-%d (%.0f%%) fitted CHIKV beta_t; weeks %d-%d (%.0f%%) rainfall climatology, rescaled to join continuously at 2026-W10",
+          SPLICE, 100*SPLICE/52, SPLICE+1, length(v_mean1), 100*(52-SPLICE)/52),
+  "The fitted CHIKV beta_t tail is confounded with susceptible depletion, not short of data: 39.5% of observed CHIKV cases fall at or after the join. Depletion alone explains the case decline, so beta_t stays flat (0.638 -> 0.630) and carries no seasonal signal. Rainfall is exogenous to the epidemic."),
+  stringsAsFactors = FALSE)
+
+write_xlsx(list(transmission_potential = tp, seeding_week = sd,
+                envelope = env, envelope_summary = env_summary, notes = notes),
            "MAYV_ca_threshold_sensitivity.xlsx")
 cat("\nWrote MAYV_ca_threshold_sensitivity.xlsx\n")
 print(tp[, c("fixed_R0","mean_R_eff","peak_R_eff","weeks_R_eff_above_1","baseline_symptomatic","averted_symptomatic")], row.names = FALSE)
