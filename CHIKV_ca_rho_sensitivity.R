@@ -195,19 +195,22 @@ write_xlsx(c(list(summary = tbl, notes = notes, beta_bands = band), sheets), XL)
 # Figure is drawn from the MERGED band, so a subset run still redraws every scenario.
 tk  <- c(1, 10, 20, 30, 40, 52)
 lab <- sprintf("%d-W%02d", caldas_obs$Year[tk], caldas_obs$week[tk])
-band$rho <- factor(band$rho, levels = unique(band$rho))
+# The workbook keeps all five scenarios; the FIGURE shows the three that are
+# substantively distinct -- the base prior, one Beta parameterisation of the municipal
+# estimate, and the point estimate. The other two low-rho priors sit on top of
+# Beta(2.52,12.39) and only crowd the legend.
+PLOT_KEYS <- c("Beta(20,60): 25% (20.1-32.5)",
+               "Beta(2.52,12.39): median 15.4 + upper 38.87",
+               "38.87% point estimate (not sampled)")
+band <- band[band$rho %in% PLOT_KEYS, ]
+band$rho <- factor(band$rho, levels = PLOT_KEYS)
 p <- ggplot(band, aes(week, med, colour = rho, fill = rho)) +
-  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = .16, colour = NA) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = .14, colour = NA) +
   geom_line(linewidth = .9) +
   scale_x_continuous(breaks = tk, labels = lab) +
-  # clipped: the low-rho scenario's upper band runs to ~20 in the last weeks, which
-  # flattens every median if left unclipped. The excursion itself is the finding, and it
-  # is quantified by pct_draws_rise_over_5 in the summary sheet.
   coord_cartesian(ylim = c(0, 2.6)) +
   labs(x = "Week", y = expression(paste("Weekly transmission rate ", beta[t])),
-       colour = NULL, fill = NULL,
-       title = sprintf("Fitted beta_t by reporting rate, spline active over all %d weeks", T_weeks),
-       subtitle = sprintf("median and 95%% UI across retained draws (n = %d per scenario); y-axis clipped at 2.6", N_DRAWS)) +
+       colour = NULL, fill = NULL, title = "Fitted beta_t by reporting rate") +
   theme_bw(12) +
   theme(legend.position = "bottom", panel.grid.minor = element_blank(),
         plot.title = element_text(face = "bold", size = 12))
