@@ -130,12 +130,21 @@ fmt <- function(x, d = 0) { q <- q3(x); sprintf("%s (%s-%s)",
         formatC(round(q[2],d), big.mark=",", format="f", digits=d),
         formatC(round(q[3],d), big.mark=",", format="f", digits=d)) }
 tbl <- do.call(rbind, lapply(RES, function(r) {
-  d <- r$draws[r$draws$draw %in% r$keep_idx, ]
+  a <- r$draws                                   # all draws, before the feasibility filter
+  d <- r$draws[r$draws$draw %in% r$keep_idx, ]   # retained
   data.frame(reporting_rate = r$lab,
              draws_retained = sprintf("%d / %d", r$n_keep, N_DRAWS),
              total_population = formatC(round(sum(N)), big.mark = ","),
-             immune_population = fmt(d$immune),
-             susceptible_population = fmt(d$susceptible),
+             # Immunity is 1 - exp(-FOI * min(age,12)), a function of FOI ALONE -- rho
+             # does not enter it. Over ALL draws it is therefore identical in every
+             # scenario (the FOI column is shared). It differs across the RETAINED
+             # subsets only because the feasibility filter selects on FOI: high-FOI draws
+             # have a smaller susceptible pool, so they hit the attack-rate ceiling and
+             # are dropped. Both are reported so that selection is visible, not hidden.
+             immune_all_draws = fmt(a$immune),
+             immune_retained = fmt(d$immune),
+             susceptible_all_draws = fmt(a$susceptible),
+             susceptible_retained = fmt(d$susceptible),
              true_infections = fmt(d$infections),
              attack_rate_pct = fmt(d$attack, 1),
              peak_beta = fmt(d$peak_beta, 3),
@@ -153,7 +162,8 @@ band <- do.call(rbind, lapply(RES, function(r) {
              rho = r$lab, stringsAsFactors = FALSE) }))
 notes <- data.frame(item = c("Departure 1", "Departure 2", "Held as in the base case",
                              "Feasibility filter", "BIC", "Beta fit", "Draws",
-                             "Choice of prior family", "Reading the rise column"),
+                             "Choice of prior family", "Immune and susceptible columns",
+                             "Reading the rise column"),
   detail = c(
   sprintf("beta_t is spline-estimated over ALL %d weeks. The base case uses active_weeks = 49 and holds beta flat to week 52, so any tail movement here is the fit's own.", T_weeks),
   "Three reporting-rate settings: Beta(20,60) sampled (base case); a Beta fitted to 15.40% (7.02-38.87%) sampled; and 38.87% as a fixed point estimate with everything else still sampled.",
@@ -163,6 +173,7 @@ notes <- data.frame(item = c("Departure 1", "Departure 2", "Held as in the base 
   sprintf("Lognormal(meanlog %.4f, sdlog %.4f) matched to the 95%% endpoints 7.02-38.87%%; implied median 16.5%% vs the stated 15.40%%. A Beta was rejected: the best fit put the 2.5th percentile at 3.9%% against 7.0%%, and the lower tail is what decides feasibility.", low_ml, low_sl),
   sprintf("%d per scenario (the base pipeline uses 1000; reduced here because each draw is a full re-fit).", N_DRAWS),
   "Two Beta parameterisations of the municipal estimate are included because a Beta has two parameters and the target has three constraints: Beta(4.69,18.17) matches both 95% endpoints (median falls to 19.7%), Beta(2.52,12.39) matches the median and upper bound (2.5th percentile falls to 3.17%, so 13.6% of its mass sits below the stated 7.02% lower bound). The Lognormal matches both endpoints with a median of 16.5%.",
+  "Prior immunity is 1 - exp(-FOI * min(age, 12)) and the susceptible pool is its complement, so BOTH depend on FOI alone -- the reporting rate does not enter either. Over all draws they are identical in every scenario, at 8,709 (3,478-20,841) immune. The retained columns differ only because the feasibility filter selects on FOI: draws with high FOI have a smaller susceptible pool, hit the attack-rate ceiling, and are dropped, so the retained subset is skewed towards lower immunity. Read the _retained columns as a diagnostic of the filter, not as an effect of rho.",
   "The MEDIAN rise after the post-peak trough is 0.0% in all three scenarios -- most draws give a monotonically falling tail even with the spline free over all 52 weeks. The rise is a TAIL phenomenon confined to low-rho draws, so pct_draws_rise_over_5 (the share of retained draws rising by more than 5%) is the informative statistic, not the median."),
   stringsAsFactors = FALSE)
 # When only a subset of scenarios is run (RHO_SENS_KEYS), MERGE into the existing
