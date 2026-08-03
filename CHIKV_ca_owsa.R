@@ -292,9 +292,9 @@ p_surface <- ggplot(surface, aes(100*coverage, week, fill = pct_averted)) +
   geom_raster(interpolate = TRUE) +
   geom_hline(yintercept = WK_PRE, colour = "grey15", linetype = "22", linewidth = .5) +
   geom_hline(yintercept = WK_ACT, colour = "grey15", linewidth = .5) +
-  annotate("text", x = 12, y = WK_PRE + 2.4, hjust = 0, size = 3.1, colour = "grey15",
-           label = "Intended: pre-outbreak, 2025-W40") +
-  annotate("text", x = 12, y = WK_ACT + 2.4, hjust = 0, size = 3.1, colour = "grey15",
+  annotate("text", x = 12, y = WK_PRE + 2.4, hjust = 0, size = 4, colour = "grey15",
+           label = "Modelled: pre-outbreak, 2025-W40") +
+  annotate("text", x = 12, y = WK_ACT + 2.4, hjust = 0, size = 4, colour = "grey15",
            label = "Actual: announced 18 Apr 2026, 2026-W16") +
   facet_wrap(~ arm, nrow = 1) +
   scale_fill_gradientn(colours = c("#3b7fb6","#7fcdbb","#d9f0a3","#fee391","#fc8d59","#d73027"),
@@ -305,8 +305,8 @@ p_surface <- ggplot(surface, aes(100*coverage, week, fill = pct_averted)) +
                                       caldas_obs$Year[sw_ticks], caldas_obs$week[sw_ticks])) +
   labs(x = "Vaccine coverage (% of eligible population aged 18-59)",
        y = "Start of vaccination campaign (week index)") +
-  theme_bw(12) +
-  theme(strip.text = element_text(face = "bold", size = 11),
+  theme_bw(11) +
+  theme(strip.text = element_text(face = "bold", size = 12),
         panel.grid = element_blank(), legend.position = "right")
 ggsave("CHIKV_ca_timing_coverage.png", p_surface, width = 11, height = 5.6, dpi = 150)
 ggsave("CHIKV_ca_timing_coverage.pdf", p_surface, width = 11, height = 5.6)
