@@ -234,9 +234,13 @@ sw_sfrac <- (N*(1-sw_Rimm))/sum(N*(1-sw_Rimm))
 sw_I0i   <- round(((week_1_cases/BASE$rho/PSYMP)/GAMMA) * sw_sfrac)
 # The engine's age reweighting rescales to preserve the total, so for a TOTAL the raw
 # sum is the same number and no weighting is needed here.
+# The y-axis is the week the campaign is DECIDED. Dosing begins BASE$delay weeks later,
+# exactly as run_scenario does (st <- start_pre + delay), so a cell here means the same
+# thing as the corresponding scenario in the tornado and in the engine.
 sw_sim <- function(cov, start, vi, vb)
   sum(seirv_vaccinated(T_weeks, A, N, sw_Rimm, sw_I0i, E0, sw_fit$beta, SIGMA, GAMMA,
-                       BASE$rho, target_age, cov, BASE$deliv, start, vi, vb, BASE$immun,
+                       BASE$rho, target_age, cov, BASE$deliv,
+                       min(start + BASE$delay, T_weeks), vi, vb, BASE$immun,
                        prop_symp = PSYMP)$new_symptomatic[, EVAL_WIN])
 SW_BASE <- sw_sim(0, WK_PRE, 0, 0)        # start week is irrelevant at coverage 0
 
@@ -259,6 +263,29 @@ intended_vs_actual <- surface |>
   select(arm, coverage, timing, pct_averted) |>
   tidyr::pivot_wider(names_from = timing, values_from = pct_averted) |>
   mutate(fold_loss = intended_pre_outbreak / actual_2026W16) |> as.data.frame()
+
+
+# The surface itself is deterministic, so its cells carry no interval. The two marked
+# dates DO have one: both are engine scenarios, so their uncertainty is already
+# propagated over the 1000-draw ensemble. The fold loss is formed per draw, keeping the
+# two timings paired.
+timing_propagated <- NULL
+if (file.exists("CHIKV_ca_engine_results.rds")) {
+  Ge <- readRDS("CHIKV_ca_engine_results.rds")
+  be <- Ge$per_draw[["No vaccine (baseline)"]][, "symptomatic"]
+  qf <- function(x, d) sprintf("%.*f (%.*f-%.*f)", d, median(x), d,
+                               quantile(x, .025), d, quantile(x, .975))
+  timing_propagated <- do.call(rbind, lapply(SW_ARMS, function(a) {
+    pre <- 100*(be - Ge$per_draw[[paste0("pre-outbreak | ", a)]][, "symptomatic"])/be
+    act <- 100*(be - Ge$per_draw[[paste0("actual rollout | ", a)]][, "symptomatic"])/be
+    data.frame(arm = a, coverage = "sampled, Beta(30%, 20-40%)",
+               intended_pre_outbreak_pct = qf(pre, 2),
+               actual_2026W16_pct        = qf(act, 3),
+               fold_loss                 = qf(pre/act, 0),
+               stringsAsFactors = FALSE) }))
+  cat("\n=== Propagated (1000 draws), the two marked campaign dates ===\n")
+  print(timing_propagated, row.names = FALSE)
+} else cat("NOTE: CHIKV_ca_engine_results.rds not found -- propagated timing sheet omitted.\n")
 
 sw_ticks <- c(1, 10, 20, 30, 40, 52)
 p_surface <- ggplot(surface, aes(100*coverage, week, fill = pct_averted)) +
@@ -290,7 +317,7 @@ ggsave("CHIKV_ca_timing_coverage.pdf", p_surface, width = 11, height = 5.6)
 notes <- data.frame(item = c(
   "Analysis", "Window", "Vaccination", "Central values", "Bounds",
   "Fixed (not varied)", "Re-fitted parameters", "Outcomes",
-  "Scenario surface", "Surface coverage axis"),
+  "Scenario surface", "Surface coverage axis", "Surface timing axis", "Intervals"),
   detail = c(
   "Deterministic one-way sensitivity: all inputs at central values, one varied at a time.",
   sprintf("52 weeks, 2025-W24 -> 2026-W22 (indices %d-%d).", min(EVAL_WIN), max(EVAL_WIN)),
@@ -304,11 +331,14 @@ notes <- data.frame(item = c(
   "FOI and rho change prior immunity / case scaling, so beta is re-fitted at each bound.",
   "Averted = baseline - scenario, both inside the window.",
   sprintf("Campaign start week x coverage, %d x %d x 2 arms, deterministic at the central set. Intended pre-outbreak date 2025-W40 (week %d) vs actual announcement 18 April 2026 = 2026-W16 (week %d). See the surface and intended_vs_actual sheets.", T_weeks, length(SW_COVS), WK_PRE, WK_ACT),
-  "Coverage on the surface is of the ELIGIBLE 18-59 group (61.5% of the population), not of the whole population."),
+  "Coverage on the surface is of the ELIGIBLE 18-59 group (61.5% of the population), not of the whole population.",
+  sprintf("The surface y-axis is the week the campaign is DECIDED; dosing begins %d weeks later (BASE$delay), as in run_scenario and the engine.", BASE$delay),
+  "Surface cells are deterministic and carry NO interval. The two marked dates are engine scenarios, so their 95%% UIs are propagated over the 1000-draw ensemble -- see intended_vs_actual_propagated. Those medians differ slightly from the deterministic cells because the engine also samples coverage, efficacy and deployment delay."),
   stringsAsFactors = FALSE)
 write_xlsx(list(notes = notes, base_case = base_tbl, owsa = owsa,
                 timing_coverage_surface = surface,
-                intended_vs_actual = intended_vs_actual), "CHIKV_ca_owsa.xlsx")
+                intended_vs_actual = intended_vs_actual,
+                intended_vs_actual_propagated = timing_propagated), "CHIKV_ca_owsa.xlsx")
 saveRDS(list(owsa = owsa, base = base_tbl, BASE = BASE, BOUNDS = BOUNDS,
              base_run = base_run, surface = surface,
              intended_vs_actual = intended_vs_actual), "CHIKV_ca_owsa.rds")
