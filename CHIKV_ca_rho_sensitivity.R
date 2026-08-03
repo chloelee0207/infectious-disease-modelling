@@ -12,6 +12,8 @@
 #      about how many infections sit behind the 8,204 observed cases:
 #        a. Beta(20,60)  -- the base case: median 25%, 95% UI 20.1-32.5%, SAMPLED
 #        b. Lognormal matched to 7.02-38.87% (stated median 15.40%)  -- SAMPLED
+#        d. Beta matched to the SAME two endpoints, for comparability with (a) -- SAMPLED
+#        e. Beta matched to the MEDIAN and the upper bound instead              -- SAMPLED
 #        c. 38.87% as a POINT ESTIMATE -- not sampled; everything else still is
 #
 # Everything else (FOI, gamma, sigma, prop_symp, the penalty, the peak weighting, the
@@ -56,7 +58,25 @@ SCEN <- list(
   list(key = "low",   lab = "Lognormal: 7.02-38.87 (median 16.5)", sampled = TRUE,
        ml = low_ml, sl = low_sl),
   list(key = "point", lab = "38.87% point estimate (not sampled)", sampled = FALSE,
-       fixed = 0.3887))
+       fixed = 0.3887),
+  # A Beta has two parameters, so it can match two of the three target quantiles but not
+  # all three. Matching BOTH 95% endpoints (as the lognormal does) is the like-for-like
+  # comparison; it costs a median of 19.7% against the stated 15.4%, worse than the
+  # lognormal's 16.5%, because a Beta on (0,1) cannot be skewed enough for an interval
+  # with hi/lo = 5.5. Included so the prior family can be chosen on evidence.
+  list(key = "beta_low", lab = "Beta(4.69,18.17): 7.02-38.87 (median 19.7)", sampled = TRUE,
+       a = 4.6898, b = 18.1660),
+  # The other Beta the target admits: median 15.40% and upper 38.87% matched exactly, at
+  # the cost of the lower bound (2.5th percentile 3.17% against the stated 7.02%). It
+  # therefore places 13.6% of its mass below the lower bound the estimate reports, versus
+  # 2.5% for the endpoint-matched version -- included so that cost can be seen in the
+  # results rather than argued from the prior alone.
+  list(key = "beta_low2", lab = "Beta(2.52,12.39): median 15.4 + upper 38.87", sampled = TRUE,
+       a = 2.5181, b = 12.3863))
+
+# Optionally run a subset, e.g. RHO_SENS_KEYS <- "beta_low" to add one scenario.
+if (exists("RHO_SENS_KEYS"))
+  SCEN <- Filter(function(x) x$key %in% RHO_SENS_KEYS, SCEN)
 
 # ---- LHS over the inputs that stay sampled in every scenario ----------------------
 # Same priors as CHIKV_ca_lhs.R. rho gets its own column, used only where sampled.
@@ -131,9 +151,40 @@ band <- do.call(rbind, lapply(RES, function(r) {
   q <- apply(b, 2, quantile, c(.025, .5, .975), na.rm = TRUE)
   data.frame(week = seq_len(T_weeks), lo = q[1,], med = q[2,], hi = q[3,],
              rho = r$lab, stringsAsFactors = FALSE) }))
-band$rho <- factor(band$rho, levels = vapply(SCEN, `[[`, character(1), "lab"))
+notes <- data.frame(item = c("Departure 1", "Departure 2", "Held as in the base case",
+                             "Feasibility filter", "BIC", "Beta fit", "Draws",
+                             "Choice of prior family", "Reading the rise column"),
+  detail = c(
+  sprintf("beta_t is spline-estimated over ALL %d weeks. The base case uses active_weeks = 49 and holds beta flat to week 52, so any tail movement here is the fit's own.", T_weeks),
+  "Three reporting-rate settings: Beta(20,60) sampled (base case); a Beta fitted to 15.40% (7.02-38.87%) sampled; and 38.87% as a fixed point estimate with everything else still sampled.",
+  "FOI ~ Lognormal(95% 0.003-0.020), gamma ~ N(0.54, 0.0714), latent ~ N(0.60, 0.05), prop_symp ~ Beta(35.84, 32.56), ridge penalty on log beta, peak weighting 1 + 10*(y/max y).",
+  "attack < 100% and predicted reported total within 10% of the observed 8,204, as in CHIKV_ca_lhs.R.",
+  "-2*logL + k*log(52) with k = df_spline + 1 = 6, using the UNWEIGHTED negative binomial log-likelihood: the peak weighting is a fitting device, not a likelihood.",
+  sprintf("Lognormal(meanlog %.4f, sdlog %.4f) matched to the 95%% endpoints 7.02-38.87%%; implied median 16.5%% vs the stated 15.40%%. A Beta was rejected: the best fit put the 2.5th percentile at 3.9%% against 7.0%%, and the lower tail is what decides feasibility.", low_ml, low_sl),
+  sprintf("%d per scenario (the base pipeline uses 1000; reduced here because each draw is a full re-fit).", N_DRAWS),
+  "Two Beta parameterisations of the municipal estimate are included because a Beta has two parameters and the target has three constraints: Beta(4.69,18.17) matches both 95% endpoints (median falls to 19.7%), Beta(2.52,12.39) matches the median and upper bound (2.5th percentile falls to 3.17%, so 13.6% of its mass sits below the stated 7.02% lower bound). The Lognormal matches both endpoints with a median of 16.5%.",
+  "The MEDIAN rise after the post-peak trough is 0.0% in all three scenarios -- most draws give a monotonically falling tail even with the spline free over all 52 weeks. The rise is a TAIL phenomenon confined to low-rho draws, so pct_draws_rise_over_5 (the share of retained draws rising by more than 5%) is the informative statistic, not the median."),
+  stringsAsFactors = FALSE)
+# When only a subset of scenarios is run (RHO_SENS_KEYS), MERGE into the existing
+# workbook rather than overwriting it, so a scenario can be added without re-fitting the
+# others. The summary and beta_bands sheets are rebuilt from the union.
+XL <- "CHIKV_ca_rho_sensitivity.xlsx"
+new_sheets <- setNames(lapply(RES, `[[`, "draws"), paste0("draws_", names(RES)))
+if (file.exists(XL) && exists("RHO_SENS_KEYS")) {
+  old <- setNames(lapply(readxl::excel_sheets(XL),
+                         function(z) as.data.frame(readxl::read_xlsx(XL, z))),
+                  readxl::excel_sheets(XL))
+  keep_old <- old[setdiff(grep("^draws_", names(old), value = TRUE), names(new_sheets))]
+  sheets <- c(keep_old, new_sheets)
+  tbl  <- rbind(old$summary[!(old$summary$reporting_rate %in% tbl$reporting_rate), , drop = FALSE], tbl)
+  band <- rbind(old$beta_bands[!(old$beta_bands$rho %in% band$rho), , drop = FALSE], band)
+} else sheets <- new_sheets
+write_xlsx(c(list(summary = tbl, notes = notes, beta_bands = band), sheets), XL)
+
+# Figure is drawn from the MERGED band, so a subset run still redraws every scenario.
 tk  <- c(1, 10, 20, 30, 40, 52)
 lab <- sprintf("%d-W%02d", caldas_obs$Year[tk], caldas_obs$week[tk])
+band$rho <- factor(band$rho, levels = unique(band$rho))
 p <- ggplot(band, aes(week, med, colour = rho, fill = rho)) +
   geom_ribbon(aes(ymin = lo, ymax = hi), alpha = .16, colour = NA) +
   geom_line(linewidth = .9) +
@@ -151,21 +202,5 @@ p <- ggplot(band, aes(week, med, colour = rho, fill = rho)) +
         plot.title = element_text(face = "bold", size = 12))
 ggsave("CHIKV_ca_rho_sensitivity.png", p, width = 9.5, height = 5.6, dpi = 150)
 
-notes <- data.frame(item = c("Departure 1", "Departure 2", "Held as in the base case",
-                             "Feasibility filter", "BIC", "Beta fit", "Draws",
-                             "Reading the rise column"),
-  detail = c(
-  sprintf("beta_t is spline-estimated over ALL %d weeks. The base case uses active_weeks = 49 and holds beta flat to week 52, so any tail movement here is the fit's own.", T_weeks),
-  "Three reporting-rate settings: Beta(20,60) sampled (base case); a Beta fitted to 15.40% (7.02-38.87%) sampled; and 38.87% as a fixed point estimate with everything else still sampled.",
-  "FOI ~ Lognormal(95% 0.003-0.020), gamma ~ N(0.54, 0.0714), latent ~ N(0.60, 0.05), prop_symp ~ Beta(35.84, 32.56), ridge penalty on log beta, peak weighting 1 + 10*(y/max y).",
-  "attack < 100% and predicted reported total within 10% of the observed 8,204, as in CHIKV_ca_lhs.R.",
-  "-2*logL + k*log(52) with k = df_spline + 1 = 6, using the UNWEIGHTED negative binomial log-likelihood: the peak weighting is a fitting device, not a likelihood.",
-  sprintf("Lognormal(meanlog %.4f, sdlog %.4f) matched to the 95%% endpoints 7.02-38.87%%; implied median 16.5%% vs the stated 15.40%%. A Beta was rejected: the best fit put the 2.5th percentile at 3.9%% against 7.0%%, and the lower tail is what decides feasibility.", low_ml, low_sl),
-  sprintf("%d per scenario (the base pipeline uses 1000; reduced here because each draw is a full re-fit).", N_DRAWS),
-  "The MEDIAN rise after the post-peak trough is 0.0% in all three scenarios -- most draws give a monotonically falling tail even with the spline free over all 52 weeks. The rise is a TAIL phenomenon confined to low-rho draws, so pct_draws_rise_over_5 (the share of retained draws rising by more than 5%) is the informative statistic, not the median."),
-  stringsAsFactors = FALSE)
-write_xlsx(list(summary = tbl, notes = notes,
-                beta_bands = band,
-                draws_base = RES$base$draws, draws_low = RES$low$draws,
-                draws_point = RES$point$draws), "CHIKV_ca_rho_sensitivity.xlsx")
+
 cat("\nWrote CHIKV_ca_rho_sensitivity.png and .xlsx\n")
