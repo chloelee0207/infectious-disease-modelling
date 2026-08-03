@@ -213,11 +213,84 @@ p_cost <- tornado("cost",        "Direct medical cost averted (2019 BRL)",     "
 print(p_symp)
 
 # ------------------------------------------------------------
-# 6. Export
+# 6. Scenario surface: campaign START WEEK x vaccine COVERAGE.
+# The one-way tornado varies deployment DELAY by a week or two; this asks the bigger
+# question the delay parameter cannot -- what does the campaign DATE cost? Ixchiq was
+# intended as a pre-outbreak prophylactic (2025-W40); in Caldas Novas it was announced on
+# 18 April 2026 = 2026-W16, after the modelled peak.
+#
+# Deterministic, like the rest of this script: 52 start weeks x 10 coverage levels x 2
+# arms is a scenario surface, and re-propagating 1,040 cells would obscure the pattern
+# without changing its shape. FOI and rho stay at their central values, so the fit is
+# reused and the baseline epidemic is identical in every cell -- only the campaign moves.
+# ------------------------------------------------------------
+idx_of <- function(y, w) caldas_obs$week_index[caldas_obs$Year == y & caldas_obs$week == w]
+WK_PRE <- start_pre                       # intended: pre-outbreak, 2025-W40
+WK_ACT <- idx_of(2026, 16)                # actual: announced 18 April 2026
+
+sw_fit <- get_fit(BASE$foi, BASE$rho)     # cached; the tornado has already built it
+sw_Rimm  <- 1 - exp(-BASE$foi * exposure_age)
+sw_sfrac <- (N*(1-sw_Rimm))/sum(N*(1-sw_Rimm))
+sw_I0i   <- round(((week_1_cases/BASE$rho/PSYMP)/GAMMA) * sw_sfrac)
+# The engine's age reweighting rescales to preserve the total, so for a TOTAL the raw
+# sum is the same number and no weighting is needed here.
+sw_sim <- function(cov, start, vi, vb)
+  sum(seirv_vaccinated(T_weeks, A, N, sw_Rimm, sw_I0i, E0, sw_fit$beta, SIGMA, GAMMA,
+                       BASE$rho, target_age, cov, BASE$deliv, start, vi, vb, BASE$immun,
+                       prop_symp = PSYMP)$new_symptomatic[, EVAL_WIN])
+SW_BASE <- sw_sim(0, WK_PRE, 0, 0)        # start week is irrelevant at coverage 0
+
+SW_WEEKS <- seq_len(T_weeks); SW_COVS <- seq(0.10, 1.00, by = 0.10)
+SW_ARMS  <- c("Disease-blocking", "Disease + infection blocking")
+cat(sprintf("Scenario surface: %d start weeks x %d coverage levels x 2 arms...\n",
+            length(SW_WEEKS), length(SW_COVS)))
+surface <- do.call(rbind, lapply(SW_WEEKS, function(w) do.call(rbind, lapply(SW_COVS, function(cv)
+  data.frame(week = w, coverage = cv, arm = factor(SW_ARMS, levels = SW_ARMS),
+             pct_averted = 100 * (SW_BASE - c(sw_sim(cv, w, 0, BASE$ve),
+                                              sw_sim(cv, w, BASE$ve, BASE$ve))) / SW_BASE,
+             stringsAsFactors = FALSE)))))
+surface$epi_week <- sprintf("%d-W%02d", caldas_obs$Year[surface$week],
+                            caldas_obs$week[surface$week])
+
+# fold loss between the intended and the actual campaign date, at each coverage level
+intended_vs_actual <- surface |>
+  filter(week %in% c(WK_PRE, WK_ACT)) |>
+  mutate(timing = ifelse(week == WK_PRE, "intended_pre_outbreak", "actual_2026W16")) |>
+  select(arm, coverage, timing, pct_averted) |>
+  tidyr::pivot_wider(names_from = timing, values_from = pct_averted) |>
+  mutate(fold_loss = intended_pre_outbreak / actual_2026W16) |> as.data.frame()
+
+sw_ticks <- c(1, 10, 20, 30, 40, 52)
+p_surface <- ggplot(surface, aes(100*coverage, week, fill = pct_averted)) +
+  geom_raster(interpolate = TRUE) +
+  geom_hline(yintercept = WK_PRE, colour = "grey15", linetype = "22", linewidth = .5) +
+  geom_hline(yintercept = WK_ACT, colour = "grey15", linewidth = .5) +
+  annotate("text", x = 12, y = WK_PRE + 2.4, hjust = 0, size = 3.1, colour = "grey15",
+           label = "Intended: pre-outbreak, 2025-W40") +
+  annotate("text", x = 12, y = WK_ACT + 2.4, hjust = 0, size = 3.1, colour = "grey15",
+           label = "Actual: announced 18 Apr 2026, 2026-W16") +
+  facet_wrap(~ arm, nrow = 1) +
+  scale_fill_gradientn(colours = c("#3b7fb6","#7fcdbb","#d9f0a3","#fee391","#fc8d59","#d73027"),
+                       name = "% of symptomatic\ncases averted") +
+  scale_x_continuous(breaks = seq(10, 100, 10), expand = c(0, 0)) +
+  scale_y_continuous(breaks = sw_ticks, expand = c(0, 0),
+                     labels = sprintf("%d\n(%d-W%02d)", sw_ticks,
+                                      caldas_obs$Year[sw_ticks], caldas_obs$week[sw_ticks])) +
+  labs(x = "Vaccine coverage (% of eligible population aged 18-59)",
+       y = "Start of vaccination campaign (week index)") +
+  theme_bw(12) +
+  theme(strip.text = element_text(face = "bold", size = 11),
+        panel.grid = element_blank(), legend.position = "right")
+ggsave("CHIKV_ca_timing_coverage.png", p_surface, width = 11, height = 5.6, dpi = 150)
+ggsave("CHIKV_ca_timing_coverage.pdf", p_surface, width = 11, height = 5.6)
+
+# ------------------------------------------------------------
+# 7. Export
 # ------------------------------------------------------------
 notes <- data.frame(item = c(
   "Analysis", "Window", "Vaccination", "Central values", "Bounds",
-  "Fixed (not varied)", "Re-fitted parameters", "Outcomes"),
+  "Fixed (not varied)", "Re-fitted parameters", "Outcomes",
+  "Scenario surface", "Surface coverage axis"),
   detail = c(
   "Deterministic one-way sensitivity: all inputs at central values, one varied at a time.",
   sprintf("52 weeks, 2025-W24 -> 2026-W22 (indices %d-%d).", min(EVAL_WIN), max(EVAL_WIN)),
@@ -229,11 +302,16 @@ notes <- data.frame(item = c(
         "against the same cases); sigma shifts peak timing not size; prop_symp cancels",
         "because the fit anchors on rho x prop_symp x infections = 8,204."),
   "FOI and rho change prior immunity / case scaling, so beta is re-fitted at each bound.",
-  "Averted = baseline - scenario, both inside the window."),
+  "Averted = baseline - scenario, both inside the window.",
+  sprintf("Campaign start week x coverage, %d x %d x 2 arms, deterministic at the central set. Intended pre-outbreak date 2025-W40 (week %d) vs actual announcement 18 April 2026 = 2026-W16 (week %d). See the surface and intended_vs_actual sheets.", T_weeks, length(SW_COVS), WK_PRE, WK_ACT),
+  "Coverage on the surface is of the ELIGIBLE 18-59 group (61.5% of the population), not of the whole population."),
   stringsAsFactors = FALSE)
-write_xlsx(list(notes = notes, base_case = base_tbl, owsa = owsa), "CHIKV_ca_owsa.xlsx")
+write_xlsx(list(notes = notes, base_case = base_tbl, owsa = owsa,
+                timing_coverage_surface = surface,
+                intended_vs_actual = intended_vs_actual), "CHIKV_ca_owsa.xlsx")
 saveRDS(list(owsa = owsa, base = base_tbl, BASE = BASE, BOUNDS = BOUNDS,
-             base_run = base_run), "CHIKV_ca_owsa.rds")
+             base_run = base_run, surface = surface,
+             intended_vs_actual = intended_vs_actual), "CHIKV_ca_owsa.rds")
 
 cat("\n=== Base case, pre-outbreak rollout ===\n"); print(base_tbl, row.names = FALSE)
 cat("\n=== Swing in symptomatic cases averted (both-blocking) ===\n")
@@ -241,4 +319,8 @@ print(owsa |> filter(arm == "Disease + infection blocking") |>
         group_by(parameter) |> summarise(low = min(symptomatic), high = max(symptomatic),
                                          swing = high - low, .groups = "drop") |>
         arrange(desc(swing)) |> as.data.frame(), row.names = FALSE, digits = 5)
-cat("\nWrote CHIKV_ca_owsa.xlsx, CHIKV_ca_owsa.rds and 3 tornado figures.\n")
+cat("\n=== Campaign date: intended 2025-W40 vs actual 2026-W16 ===\n")
+print(intended_vs_actual |> mutate(coverage = 100*coverage,
+        across(where(is.numeric), \(x) round(x, 2))) |> as.data.frame(), row.names = FALSE)
+cat("\nWrote CHIKV_ca_owsa.xlsx, CHIKV_ca_owsa.rds, 3 tornado figures",
+    "and CHIKV_ca_timing_coverage.png/.pdf\n")
