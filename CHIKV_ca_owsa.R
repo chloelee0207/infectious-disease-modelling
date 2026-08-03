@@ -317,7 +317,8 @@ ggsave("CHIKV_ca_timing_coverage.pdf", p_surface, width = 11, height = 5.6)
 notes <- data.frame(item = c(
   "Analysis", "Window", "Vaccination", "Central values", "Bounds",
   "Fixed (not varied)", "Re-fitted parameters", "Outcomes",
-  "Scenario surface", "Surface coverage axis", "Surface timing axis", "Intervals"),
+  "Scenario surface", "Surface coverage axis", "Surface timing axis", "Intervals",
+  "Interpreting the fold loss"),
   detail = c(
   "Deterministic one-way sensitivity: all inputs at central values, one varied at a time.",
   sprintf("52 weeks, 2025-W24 -> 2026-W22 (indices %d-%d).", min(EVAL_WIN), max(EVAL_WIN)),
@@ -333,7 +334,8 @@ notes <- data.frame(item = c(
   sprintf("Campaign start week x coverage, %d x %d x 2 arms, deterministic at the central set. Intended pre-outbreak date 2025-W40 (week %d) vs actual announcement 18 April 2026 = 2026-W16 (week %d). See the surface and intended_vs_actual sheets.", T_weeks, length(SW_COVS), WK_PRE, WK_ACT),
   "Coverage on the surface is of the ELIGIBLE 18-59 group (61.5% of the population), not of the whole population.",
   sprintf("The surface y-axis is the week the campaign is DECIDED; dosing begins %d weeks later (BASE$delay), as in run_scenario and the engine.", BASE$delay),
-  "Surface cells are deterministic and carry NO interval. The two marked dates are engine scenarios, so their 95%% UIs are propagated over the 1000-draw ensemble -- see intended_vs_actual_propagated. Those medians differ slightly from the deterministic cells because the engine also samples coverage, efficacy and deployment delay."),
+  "Surface cells are deterministic and carry NO interval. The two marked dates are engine scenarios, so their 95%% UIs are propagated over the 1000-draw ensemble -- see intended_vs_actual_propagated. Those medians differ slightly from the deterministic cells because the engine also samples coverage, efficacy and deployment delay.",
+  "The fold loss is UNSTABLE and should not be quoted precisely: its denominator is ~0.03% of cases, so small changes in assumptions move it by a multiple. Adding the 2-week deployment delay alone takes it from ~193x to ~590x, because two weeks costs nothing pre-outbreak (99.5% of cases still ahead) but 68% of the remaining benefit at 2026-W16 (cases left after immunity fall 1,721 -> 806, and the 10-week rollout is truncated by the window end). Prefer reporting the two percentages, which are stable, and describing the loss as two to three orders of magnitude."),
   stringsAsFactors = FALSE)
 write_xlsx(list(notes = notes, base_case = base_tbl, owsa = owsa,
                 timing_coverage_surface = surface,
