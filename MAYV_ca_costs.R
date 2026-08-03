@@ -28,7 +28,7 @@
 # disjoint exit funnel. A patient who becomes chronic also consumed acute and
 # sub-acute care, so they pay at every phase they passed through.
 #
-# CONDITIONING: none. R0 is FIXED per scenario in MAYV_ca_lhs.R (low = 1.20, high = 2.50),
+# CONDITIONING: none. R0 is FIXED per scenario in MAYV_ca_lhs.R (low = 1.20, high = 2.10),
 # so every draw is the same transmission regime and outbreak size is unimodal. Every summary
 # here is over ALL draws (G$outbreak is now every row), matching the engine.
 #

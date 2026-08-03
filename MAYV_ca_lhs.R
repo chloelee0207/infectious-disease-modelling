@@ -13,7 +13,7 @@
 #
 # SAMPLED INPUTS (priors, from model_calibration.xlsx MAYV rows unless noted):
 #     gamma   ~ Normal(rate)         recovery rate  (7 d central, 5-10 d range)
-#     sigma   = 1 / Normal(period)   intrinsic incubation ~12 d (tight)
+#     sigma   = 1 / Normal(period)   intrinsic incubation 3.0 d, 95% CrI 2.2-3.8 (Caicedo 2021)
 #     rho     ~ Beta(20, 60)         reporting rate (mean 0.25)      [hardcoded]
 #     prop_symp ~ Beta(35.84, 32.56) symptomatic fraction (med 0.524)[hardcoded]
 #     immune  ~ Lognormal            prior-immune FRACTION, FLAT across ages;
@@ -57,14 +57,20 @@
 #                Read as a PEAK (not annual-mean) value: this is the conservative reading,
 #                since an annual-mean 1.2 would imply a peak of ~3+ and a far larger
 #                outbreak. A single introduction does not self-sustain at this R0.
-#   high = 2.50  Sustained urban Aedes-borne transmission. Anchored on THREE independent
-#                lines that converge on 2-3: (i) the peak R0 fitted for CHIKV in THIS
-#                municipality, 2.67 (95% UI 2.39-3.13) -- same vector, climate, population;
-#                (ii) Caicedo's Amazon-basin range 2.1-2.9; (iii) the growth rate of the
-#                Belterra 1977-78 MAYV outbreak, ~1.9-2.5. 2.50 sits at the conservative
-#                end of all three. This is a COUNTERFACTUAL: it assumes MAYV acquires
-#                Ae. aegypti transmission competence it is not currently known to possess,
-#                and is not a prediction.
+#   high = 2.10  Sustained urban Aedes-borne transmission: the LOWER bound of Caicedo's
+#                Amazon-basin range (2.1-2.9), i.e. the most conservative value in that
+#                range. Taking BOTH R0 and the latent period from Caicedo keeps the
+#                natural history and the reproduction number internally consistent.
+#                Context: the peak R0 fitted for CHIKV in THIS municipality is 2.67
+#                (95% UI 2.39-3.13), and the Belterra 1977-78 growth rate implies ~1.9-2.5,
+#                so 2.10 is conservative against both. It is a COUNTERFACTUAL: it assumes
+#                MAYV acquires Ae. aegypti transmission competence it is not currently
+#                known to possess, and is not a prediction.
+#                NB R0 and the latent period are partly INTERCHANGEABLE in setting outbreak
+#                size, because both control how many generations fit inside the seasonal
+#                window before the dry-season tail collapses transmission. Shortening the
+#                latent period from 12 d to 3 d multiplies outbreak size ~50x at fixed R0,
+#                which is why moving to Caicedo's 3.0 d required re-anchoring R0 downward.
 # BECAUSE R0 IS FIXED, outbreak size is unimodal within a scenario and there is no
 # fizzle/take-off split, so the engine reports over ALL draws (no conditioning).
 # There is still NO MAYV outbreak to fit, so these remain PRIOR-PREDICTIVE bands.
@@ -177,14 +183,33 @@ sd_of   <- function(r) (r[["95% UI upper"]] - r[["95% UI lower"]]) / (2*1.96)
 gr <- row_for("gamma"); sr <- row_for("sigma")
 g_m <- gr$Median; g_sd <- sd_of(gr)            # gamma is a RATE (per week)
 p_m <- sr$Median; p_sd <- sd_of(sr)            # sigma stored as a PERIOD (weeks) -> invert
+
+# LATENT-PERIOD SCENARIO. Base case = the workbook value: Caicedo et al. 2021's intrinsic
+# incubation period, 3.0 d (95% CrI 2.2-3.8) -> 0.4286 wk, N(0.4286, 0.058309). Using
+# Caicedo for BOTH the latent period and R0 keeps the natural history and the reproduction
+# number internally consistent (they were estimated together).
+#   NB Caicedo also report a distribution SD of 1.2 d (95% CrI 1.0-1.7). That is BETWEEN-
+#   INDIVIDUAL variation in incubation time, which the SEIR's exponential E->I waiting time
+#   already represents. The LHS samples uncertainty in the MEAN, so the 2.2-3.8 CrI on the
+#   mean is the correct input -- same convention as every other row in the workbook.
+# Sensitivity: MAYV_LATENT <- "long12d" restores the previous 12-day assumption. That is a
+# STRUCTURAL sensitivity, not a wider prior: it changes the generation time from ~1.43 to
+# ~2.71 wk, so far fewer generations fit inside the supercritical season before the dry-
+# season tail collapses transmission, and the outbreak is ~50x smaller at the same R0.
+# Latent period and R0 are therefore partly interchangeable in setting outbreak size.
+if (!exists("MAYV_LATENT")) MAYV_LATENT <- "caicedo3d"    # "caicedo3d" | "long12d"
+stopifnot(MAYV_LATENT %in% c("caicedo3d", "long12d"))
+if (MAYV_LATENT == "long12d") { p_m <- 1.7143; p_sd <- 0.05 }   # 12 d (11.3-12.7), pre-2026-07 base case
+cat(sprintf("Latent period scenario '%s': mean %.4f wk (%.1f d), sd %.6f\n",
+            MAYV_LATENT, p_m, 7*p_m, p_sd))
 rab <- c(a = 20, b = 60)                        # rho ~ Beta(20,60), mean 0.25
 ps_a <- 35.84; ps_b <- 32.56                    # prop_symp ~ Beta, median 0.524
 
 # R0 = wet-season PEAK R_eff (r0_is_peak = TRUE above), FIXED PER SCENARIO (see the
 # header for why it is not sampled). Two scenarios only; each is one transmission regime.
-if (!exists("R0_SCENARIO")) R0_SCENARIO <- "high"   # "high" = 2.50 | "low" = 1.20; overridable via a pre-set var
+if (!exists("R0_SCENARIO")) R0_SCENARIO <- "high"   # "high" = 2.10 | "low" = 1.20; overridable via a pre-set var
 R0_FIXED <- c(low = 1.20,      # Caicedo et al. 2021 outside-Amazon-basin, read as a PEAK
-              high = 2.50)     # sustained urban Aedes transmission; conservative vs CHIKV-in-Caldas 2.67
+              high = 2.10)     # Caicedo Amazon-basin LOWER bound (range 2.1-2.9)
 stopifnot(R0_SCENARIO %in% names(R0_FIXED))
 R0_VALUE  <- unname(R0_FIXED[[R0_SCENARIO]])
 R0_median <- R0_VALUE                           # name kept for downstream compatibility
@@ -208,7 +233,7 @@ cat(sprintf("FIXED (not sampled): R0 = %.2f  (%s scenario, %s)\n",
 # Seasonality summary. R0 above is the WET-SEASON PEAK, because the envelope is
 # peak-normalised (r0_is_peak). The mean of season(t) is well below 1, so the
 # year-average transmission intensity is much lower than the headline R0 -- report both,
-# or a reader will read "R0 = 2.50" as an unforced R0 and expect a ~90% attack rate.
+# or a reader will read "R0 = 2.10" as an unforced R0 and expect a large attack rate.
 # The model therefore runs close to the epidemic threshold for most of the year, which
 # is why burden is a steep function of R0 rather than a saturating one.
 # ------------------------------------------------------------

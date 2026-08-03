@@ -8,7 +8,7 @@
 # + DALY draws on top.
 #
 # KEY MAYV FRAMING -- FIXED R0 PER SCENARIO, NO TAKE-OFF CONDITIONING. R0 is set by the
-# scenario in MAYV_ca_lhs.R (low = 1.20 Caicedo outside-Amazon; high = 2.50 sustained urban
+# scenario in MAYV_ca_lhs.R (low = 1.20 Caicedo outside-Amazon; high = 2.10 Caicedo Amazon-basin
 # Aedes transmission) rather than sampled, because the published MAYV R0 figures are point
 # estimates from DIFFERENT settings and decades -- between-setting heterogeneity, not
 # uncertainty about one municipality. With R0 fixed, every draw is the same transmission
@@ -281,8 +281,8 @@ for (i in 1:N_DRAWS) {
 # Conditioning was only ever needed under the old sampled-R0 prior, where draws straddled
 # the epidemic threshold and the output was bimodal. Applying it now would bisect a single
 # continuous distribution at an arbitrary point and badly misreport the centre: e.g. at
-# R0 = 2.50 only ~29% of draws exceed 1% attack rate, yet the MEDIAN draw is a real
-# outbreak of several hundred symptomatic cases. So we report over all N_DRAWS.
+# the high scenario only a minority of draws exceed 1% attack rate, yet the MEDIAN draw is
+# a real outbreak of several hundred symptomatic cases. So we report over all N_DRAWS.
 #
 # `outbreak` is retained as the row index used downstream (MAYV_ca_outputs.R /
 # MAYV_ca_costs.R read G$outbreak) but is now simply ALL draws.

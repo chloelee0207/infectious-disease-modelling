@@ -33,7 +33,7 @@ suppressMessages({library(dplyr); library(ggplot2); library(patchwork); library(
 
 # Which MAYV scenario to show. Reads the scenario-TAGGED results file so the figures
 # never depend on which scenario happened to run last.
-if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" R0 2.50 | "low" R0 1.20
+if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" R0 2.10 | "low" R0 1.20
 
 ARMS      <- c("Disease-blocking", "Disease + infection blocking")
 OUT_LV    <- c("Cumulative DALYs", "Cumulative deaths", "Healthcare cost")  # as stored in the .rds

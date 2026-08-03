@@ -6,7 +6,7 @@
 # No take-off conditioning: R0 is fixed, so there is no fizzle/take-off split.
 #
 # BASE CASE. Peak R0 is taken from the engine's fixed scenario value (M$R0_fixed --
-# low = 1.20 Caicedo outside-Amazon, high = 2.50 sustained urban Aedes transmission).
+# low = 1.20 Caicedo outside-Amazon, high = 2.10 Caicedo Amazon-basin lower bound).
 # R0 is NOT a tornado row: it is scenario-defining, not a single-setting uncertain
 # parameter, and outbreak size is a steep convex function of it, so one bar would swamp
 # every other parameter and would misrepresent between-setting heterogeneity as
@@ -43,6 +43,7 @@ stopifnot(is.finite(R0_BASE))
 # Dedicated R0 response curve (section 5b). Step 0.1 is deliberate: in the steep region a
 # 0.1 increment roughly doubles outbreak size, so a coarser grid would hide the threshold.
 R0_SWEEP <- seq(1.1, 3.6, by = 0.1)                # 26 points spanning both scenarios
+R0_MARKS <- c(low = 1.20, high = 2.10)             # the two reported scenarios, for figures
 
 BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 0.50,
              cov = 0.30, deliv = 0.10, delay = 2, immun = 2, env = "hybrid")
@@ -140,7 +141,7 @@ owsa <- do.call(rbind, rows)
 # ---- structural sensitivities (NOT tornado rows): R0 scenario + seasonal envelope ----
 struct <- rbind(
   # Both fixed R0 scenarios, for context (the full curve is in the r0_response sheet).
-  do.call(rbind, lapply(c(1.20, 2.50), function(x) {
+  do.call(rbind, lapply(unname(R0_MARKS), function(x) {
     r <- run_scenario(modifyList(BASE, list(R0 = x)))
     data.frame(input = "Peak R0 (scenario, FIXED)", setting = sprintf("%.2f", x),
                symptomatic_base = r$symptomatic_base, averted = r$averted,
@@ -193,14 +194,14 @@ print(transform(r0_response, symptomatic_base = round(symptomatic_base),
                 averted = round(averted), attack_pct = round(attack_pct, 3),
                 pct_reduction = round(pct_reduction, 1)), row.names = FALSE)
 
-scen_pts <- subset(r0_response, abs(R0 - 1.20) < 1e-9 | abs(R0 - 2.50) < 1e-9)
+scen_pts <- subset(r0_response, R0 %in% round(R0_MARKS, 10))
 p_r0 <- ggplot(r0_response, aes(R0)) +
   geom_line(aes(y = pmax(symptomatic_base, 0.5), colour = "Baseline symptomatic"), linewidth = 1) +
   geom_line(aes(y = pmax(averted, 0.5),          colour = "Averted by vaccine"),   linewidth = 1) +
   geom_point(data = scen_pts, aes(y = pmax(symptomatic_base, 0.5)), size = 2.6, colour = "#c0392b") +
-  geom_vline(xintercept = c(1.20, 2.50), linetype = "dotted", colour = "grey40") +
-  annotate("text", x = 1.20, y = Inf, label = "low\n1.20",  vjust = 1.3, size = 3, colour = "grey30") +
-  annotate("text", x = 2.50, y = Inf, label = "high\n2.50", vjust = 1.3, size = 3, colour = "grey30") +
+  geom_vline(xintercept = unname(R0_MARKS), linetype = "dotted", colour = "grey40") +
+  annotate("text", x = R0_MARKS["low"],  y = Inf, label = sprintf("low\n%.2f",  R0_MARKS["low"]),  vjust = 1.3, size = 3, colour = "grey30") +
+  annotate("text", x = R0_MARKS["high"], y = Inf, label = sprintf("high\n%.2f", R0_MARKS["high"]), vjust = 1.3, size = 3, colour = "grey30") +
   scale_y_log10(labels = scales::comma) +
   scale_colour_manual(values = c("Baseline symptomatic" = "#c0392b",
                                  "Averted by vaccine"   = "#2c7fb8"), name = NULL) +
@@ -219,7 +220,7 @@ cat("Saved MAYV_ca_r0_response.png\n")
 # same uncertainty the engine propagates: gamma, sigma, rho, prop_symp and prior immunity
 # from the LHS ensemble, plus the engine's OWN sampled coverage / VE / deployment delay
 # (reused draw-for-draw from MAYV_ca_engine_results.rds). Because those are the identical
-# draws, the R0 = 2.50 row reproduces the engine's headline numbers.
+# draws, the row at the scenario's R0 reproduces the engine's headline numbers.
 #
 # Weekly delivery speed is held at its median rather than resampled: it is the weakest
 # input in the tornado (swing ~0.07 symptomatic cases) and the engine does not store its
@@ -300,9 +301,9 @@ if (R0_PSA_RUN) {
                     fill = "Averted by vaccine"), alpha = .22) +
     geom_line(aes(y = pmax(symptomatic_med, .5), colour = "Baseline symptomatic"), linewidth = 1) +
     geom_line(aes(y = pmax(averted_med, .5),     colour = "Averted by vaccine"),   linewidth = 1) +
-    geom_vline(xintercept = c(1.20, 2.50), linetype = "dotted", colour = "grey40") +
-    annotate("text", x = 1.20, y = Inf, label = "low\n1.20",  vjust = 1.3, size = 3, colour = "grey30") +
-    annotate("text", x = 2.50, y = Inf, label = "high\n2.50", vjust = 1.3, size = 3, colour = "grey30") +
+    geom_vline(xintercept = unname(R0_MARKS), linetype = "dotted", colour = "grey40") +
+    annotate("text", x = R0_MARKS["low"],  y = Inf, label = sprintf("low\n%.2f",  R0_MARKS["low"]),  vjust = 1.3, size = 3, colour = "grey30") +
+    annotate("text", x = R0_MARKS["high"], y = Inf, label = sprintf("high\n%.2f", R0_MARKS["high"]), vjust = 1.3, size = 3, colour = "grey30") +
     scale_y_log10(labels = scales::comma) +
     scale_colour_manual(values = c("Baseline symptomatic" = "#c0392b",
                                    "Averted by vaccine"   = "#2c7fb8"), name = NULL,
@@ -324,7 +325,7 @@ notes <- data.frame(item = c("Analysis", "Base case R0", "R0 response curve", "V
                              "Seasonal envelope", "Fixed (not varied)", "Window"),
   detail = c(
   "Deterministic one-way sensitivity; MAYV is not fitted, so every run is a forward simulation.",
-  sprintf("Peak R0 %.2f, FIXED by the '%s' scenario (low = 1.20 Caicedo et al. 2021 outside-Amazon-basin; high = 2.50 sustained urban Aedes transmission, conservative vs the 2.67 peak R0 fitted for CHIKV in this municipality). Not sampled: published MAYV R0 figures are point estimates from different settings and decades.",
+  sprintf("Peak R0 %.2f, FIXED by the '%s' scenario (low = 1.20 Caicedo et al. 2021 outside-Amazon-basin; high = 2.10 Caicedo Amazon-basin lower bound, conservative vs the 2.67 peak R0 fitted for CHIKV in this municipality). Not sampled: published MAYV R0 figures are point estimates from different settings and decades.",
           R0_BASE, M$R0_scenario),
   sprintf("R0 is NOT a tornado row. It is scenario-defining, and outbreak size is a steep CONVEX function of it (%.0f -> %.0f symptomatic across R0 %.1f-%.1f), so one bar would swamp every other parameter. It is swept as a response curve instead: see the r0_response sheet and MAYV_ca_r0_response.png. No take-off conditioning is applied anywhere (R0 fixed -> one transmission regime, unimodal outbreak size).",
           min(r0_response$symptomatic_base), max(r0_response$symptomatic_base),
