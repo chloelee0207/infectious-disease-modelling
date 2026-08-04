@@ -171,11 +171,20 @@ epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = FS$epi_annot_ch
           panel.grid.minor = element_blank())
 }
 
-pE_c <- epicurve(epi_ch, "Chikungunya", ann_ch, ch_dose, ch_dose + 10, "Predicted symptomatic cases")
-# the MAYV panel is a third of the width, so its annotation needs a smaller size
-pE_m <- epicurve(epi_mv, mayv_lab, ann_mv, mv_dose, mv_dose + mv_len, NULL)
+# Both annotations are wrapped: with equal panel widths neither unwrapped string fits
+# inside its panel. strwrap breaks on spaces, so the wrap never lands inside a number.
+wrap_ann <- function(x, w) paste(vapply(strsplit(x, "\n")[[1]],
+  function(l) paste(strwrap(l, width = w), collapse = "\n"), character(1)), collapse = "\n")
 
-p_epi <- pE_c + pE_m + plot_layout(ncol = 2, widths = c(2, 1), guides = "collect") &
+pE_c <- epicurve(epi_ch, "Chikungunya", wrap_ann(ann_ch, 40), ch_dose, ch_dose + 10,
+                 "Predicted symptomatic cases")
+pE_m <- epicurve(epi_mv, mayv_lab, wrap_ann(ann_mv, 40), mv_dose, mv_dose + mv_len, NULL)
+
+# Equal panel widths, and ONE legend: the two panels carry identical keys, so MAYV's copy
+# is dropped at the SCALE level -- a theme(legend.position = "none") would be undone by
+# the shared `&` theme that positions the collected guide.
+p_epi <- pE_c + (pE_m + guides(fill = "none", colour = "none", linetype = "none")) +
+  plot_layout(ncol = 2, widths = c(1, 1)) &
   theme(legend.position = "bottom")
 ggsave("CHIKV_MAYV_epicurves.png", p_epi, width = 11, height = 4.8, dpi = 130)
 cat(sprintf("Saved CHIKV_MAYV_epicurves.png (MAYV = '%s', fixed R0 = %.2f, all %d draws).\n",
