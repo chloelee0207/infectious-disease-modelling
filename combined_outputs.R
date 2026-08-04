@@ -143,8 +143,11 @@ epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = FS$epi_annot_ch
               position = "identity", alpha = .25, colour = NA) +
     geom_line(data = subset(d, measure == "Reported"),
               aes(linetype = measure), linewidth = .8) +
-    annotate("text", x = -Inf, y = Inf, label = ann, hjust = -0.02, vjust = 1.15,
-             size = ann_size, lineheight = 1.05) +
+    # Anchored at week 2.5 rather than x = -Inf: with -Inf the hjust offset scales with
+    # the text width, so the two panels get different left margins and both sit hard
+    # against the axis. A data-unit anchor gives the same gap in both.
+    annotate("text", x = 2.5, y = Inf, label = ann, hjust = 0, vjust = 1.3,
+             size = ann_size, lineheight = 1.15) +
     expand_limits(y = 0) +
     facet_wrap(~ panel) +
     scale_colour_manual(values = scen_cols, aesthetics = c("colour", "fill"), drop = FALSE) +
@@ -171,14 +174,16 @@ epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = FS$epi_annot_ch
           panel.grid.minor = element_blank())
 }
 
-# Both annotations are wrapped: with equal panel widths neither unwrapped string fits
-# inside its panel. strwrap breaks on spaces, so the wrap never lands inside a number.
+# Wrap guard only. At annotation size 4 the longest line (57 characters) fits a
+# half-width panel, so 60 leaves the natural three-line / two-line structure intact and
+# only catches a string that grows unexpectedly. strwrap breaks on spaces, so a wrap can
+# never land inside a number.
 wrap_ann <- function(x, w) paste(vapply(strsplit(x, "\n")[[1]],
   function(l) paste(strwrap(l, width = w), collapse = "\n"), character(1)), collapse = "\n")
 
-pE_c <- epicurve(epi_ch, "Chikungunya", wrap_ann(ann_ch, 42), ch_dose, ch_dose + 10,
+pE_c <- epicurve(epi_ch, "Chikungunya", wrap_ann(ann_ch, 60), ch_dose, ch_dose + 10,
                  "Predicted symptomatic cases")
-pE_m <- epicurve(epi_mv, mayv_lab, wrap_ann(ann_mv, 42), mv_dose, mv_dose + mv_len, NULL)
+pE_m <- epicurve(epi_mv, mayv_lab, wrap_ann(ann_mv, 60), mv_dose, mv_dose + mv_len, NULL)
 
 # Equal panel widths, and ONE legend: the two panels carry identical keys, so MAYV's copy
 # is dropped at the SCALE level -- a theme(legend.position = "none") would be undone by
