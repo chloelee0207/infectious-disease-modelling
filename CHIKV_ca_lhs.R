@@ -261,11 +261,19 @@ save_band <- function(file, dfp, ytitle, ttl, add_dashed=NULL){
     scale_x_continuous(breaks=x_ticks$week_index, labels=x_ticks$week) +
     labs(x="Week", y=ytitle, title=ttl) + theme_bw(12)
   if(!is.null(add_dashed)) g <- g + geom_line(data=add_dashed, aes(week,y), colour="#d6604d", linewidth=.8, linetype="dashed")
+  if(!is.null(ylim))       g <- g + coord_cartesian(ylim=ylim)
   ggsave(file, g, width=7.5, height=4.4, dpi=110)
 }
 save_band("CHIKV_ca_prop_beta.png", data.frame(week=weeks, lo=bb[1,], med=bb[2,], hi=bb[3,]),
           expression(beta[t]), "Beta(t) with 95% band",
           data.frame(week=weeks, y=base$beta))
+# Same band, y-axis capped at 4. The full version runs to ~8 because the upper band
+# explodes in the last weeks (7 of 52 weeks exceed 4), which flattens the median curve
+# and the peak. Clipped here so the shape is readable; the full-range version above keeps
+# the excursion visible.
+save_band("CHIKV_ca_prop_beta_zoom.png", data.frame(week=weeks, lo=bb[1,], med=bb[2,], hi=bb[3,]),
+          expression(beta[t]), "Beta(t) with 95% band", data.frame(week=weeks, y=base$beta),
+          ylim = c(0, 4))
 save_band("CHIKV_ca_prop_R0.png", data.frame(week=weeks, lo=r0b[1,], med=r0b[2,], hi=r0b[3,]),
           "R0(t) = beta/gamma", "R0(t) with 95% band vs baseline (dashed)",
           data.frame(week=weeks, y=base$beta/0.54))
@@ -281,7 +289,7 @@ ggsave("CHIKV_ca_prop_infections.png",
 write.csv(data.frame(draw=1:n, FOI=foi, gamma=gam, sigma=sig, rho=rho, prop_symp=psy,
                      immune_pct=immune, R0_peak=R0peak, attack_pct=attack, total_reported=totrep,
                      feasible=(seq_len(n) %in% ok)), "CHIKV_ca_lhs_draws.csv", row.names=FALSE)
-cat("\nSaved CHIKV_ca_prop_beta.png, CHIKV_ca_prop_R0.png, CHIKV_ca_prop_infections.png, CHIKV_ca_lhs_draws.csv\n")
+cat("\nSaved CHIKV_ca_prop_beta.png, CHIKV_ca_prop_beta_zoom.png, CHIKV_ca_prop_R0.png, CHIKV_ca_prop_infections.png, CHIKV_ca_lhs_draws.csv\n")
 
 # ------------------------------------------------------------
 # 9. Export the feasible-draw ensemble for the engine.
