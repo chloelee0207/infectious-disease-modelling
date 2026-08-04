@@ -254,7 +254,7 @@ cat(sprintf("Goodness of fit across draws: logLik %.1f [%.1f, %.1f] | AIC %.1f [
             q3(bic_d[ok])[1],q3(bic_d[ok])[2],q3(bic_d[ok])[3]))
 
 bb <- band(beta_mat); r0b <- band(r0_mat); ib <- band(inf_mat); pb <- band(pred_mat)
-save_band <- function(file, dfp, ytitle, ttl, add_dashed=NULL){
+save_band <- function(file, dfp, ytitle, ttl, add_dashed=NULL, ylim=NULL){
   g <- ggplot(dfp) + geom_vline(xintercept=year_break, linetype="dashed", colour="grey60") +
     geom_ribbon(aes(week, ymin=lo, ymax=hi), fill="#a8d1e7", alpha=.5) +
     geom_line(aes(week, med), colour="#3182bd", linewidth=1) +
