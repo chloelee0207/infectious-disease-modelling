@@ -59,8 +59,8 @@ FS <- list(
   epi_axis_text  = 12,  # week numbers and case counts
   epi_axis_title = 13,  # "Week (index, 1 = 2025-W24)", "Predicted symptomatic cases"
   epi_strip      = 12,  # grey strips: "Chikungunya", "Mayaro (fixed R0 = ...)"
-  epi_annot_chik = 5,   # in-panel "% Reduction in predicted symptomatic cases", CHIKV
-  epi_annot_mayv = 5,   # the same text in the MAYV panel  (annotate scale, see above)
+  epi_annot_chik = 4,   # in-panel "% Reduction in predicted symptomatic cases", CHIKV
+  epi_annot_mayv = 4,   # the same text in the MAYV panel  (annotate scale, see above)
   epi_legend     = 11,  # legend keys under panel A
 
   # ---- panels B, C, D, the burden bars
@@ -176,16 +176,19 @@ epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = FS$epi_annot_ch
 wrap_ann <- function(x, w) paste(vapply(strsplit(x, "\n")[[1]],
   function(l) paste(strwrap(l, width = w), collapse = "\n"), character(1)), collapse = "\n")
 
-pE_c <- epicurve(epi_ch, "Chikungunya", wrap_ann(ann_ch, 40), ch_dose, ch_dose + 10,
+pE_c <- epicurve(epi_ch, "Chikungunya", wrap_ann(ann_ch, 42), ch_dose, ch_dose + 10,
                  "Predicted symptomatic cases")
-pE_m <- epicurve(epi_mv, mayv_lab, wrap_ann(ann_mv, 40), mv_dose, mv_dose + mv_len, NULL)
+pE_m <- epicurve(epi_mv, mayv_lab, wrap_ann(ann_mv, 42), mv_dose, mv_dose + mv_len, NULL)
 
 # Equal panel widths, and ONE legend: the two panels carry identical keys, so MAYV's copy
 # is dropped at the SCALE level -- a theme(legend.position = "none") would be undone by
 # the shared `&` theme that positions the collected guide.
 p_epi <- pE_c + (pE_m + guides(fill = "none", colour = "none", linetype = "none")) +
-  plot_layout(ncol = 2, widths = c(1, 1)) &
-  theme(legend.position = "bottom")
+  # guides = "collect" lifts the legend out of the first panel and gives it its own
+  # strip across the bottom of BOTH panels; without it the legend belongs to Chikungunya
+  # and sits left-aligned under that panel alone.
+  plot_layout(ncol = 2, widths = c(1, 1), guides = "collect") &
+  theme(legend.position = "bottom", legend.justification = "center")
 ggsave("CHIKV_MAYV_epicurves.png", p_epi, width = 11, height = 4.8, dpi = 130)
 cat(sprintf("Saved CHIKV_MAYV_epicurves.png (MAYV = '%s', fixed R0 = %.2f, all %d draws).\n",
             MAYV_EPI_SCENARIO, M$R0_fixed, M$N_DRAWS))
