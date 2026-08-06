@@ -286,8 +286,11 @@ ggsave("CHIKV_ca_prop_infections.png",
     labs(x="Week", y="Weekly cases", title="True infections (band) vs reported (dots)") +
     theme_bw(12), width=7.5, height=4.4, dpi=110)
 
+# loglik/AIC/BIC are saved per draw as well as summarised above, so the fit criterion can
+# be audited -- e.g. what retaining the sets that fail it would do to the reported fit.
 write.csv(data.frame(draw=1:n, FOI=foi, gamma=gam, sigma=sig, rho=rho, prop_symp=psy,
                      immune_pct=immune, R0_peak=R0peak, attack_pct=attack, total_reported=totrep,
+                     loglik=loglik, AIC=aic_d, BIC=bic_d,
                      feasible=(seq_len(n) %in% ok)), "CHIKV_ca_lhs_draws.csv", row.names=FALSE)
 cat("\nSaved CHIKV_ca_prop_beta.png, CHIKV_ca_prop_beta_zoom.png, CHIKV_ca_prop_R0.png, CHIKV_ca_prop_infections.png, CHIKV_ca_lhs_draws.csv\n")
 

@@ -130,7 +130,7 @@ notes <- data.frame(
             as.character(length(ok)),
             "Disease-blocking ONLY (VE_inf = 0), pre-outbreak campaign -> infections never averted.",
             sprintf("%.0f%%", 100*median(G$cov_d)),
-            sprintf("%.0f%% (sensitivity 25-75%%)", 100*median(G$veb_d)),
+            sprintf("%.0f%% (Kostecki et al. 2026, ~33%% of CHIKV patients cross-neutralised MAYV; 95%% UI 15-55%%)", 100*median(G$veb_d)),
             "Zero: no confirmed MAYV-attributable death -> CFR = 0, so deaths & YLL = 0, DALY = YLD.",
             "BORROWED CHIKV (Hyolim Table S4) -- CHIKV-equivalent UPPER bound, not measured MAYV.",
             "Per-draw (Beta, median ~0.25).",
@@ -236,7 +236,16 @@ add_res <- function(outcome, scen, v) res_rows[[length(res_rows)+1]] <<- data.fr
 if (!file.exists("MAYV_ca_costs.rds"))
   stop("MAYV_ca_costs.rds not found -- run MAYV_ca_costs.R before this script ",
        "(the residual-burden figure needs total direct medical cost).")
-cost_pd <- readRDS("MAYV_ca_costs.rds")$cost_pd
+mayv_cost <- readRDS("MAYV_ca_costs.rds")
+# GUARD: the cost layer is written by MAYV_ca_costs.R, which must run BEFORE this
+# script (see the run order above). Without this check, running them out of order --
+# or after switching R0_SCENARIO -- silently pairs one scenario's costs with another's
+# burden, which shows up as a ~0% healthcare-cost reduction instead of ~8%.
+if (!identical(mayv_cost$R0_scenario, G$R0_scenario))
+  stop("MAYV_ca_costs.rds is from R0 scenario '", mayv_cost$R0_scenario %||% "<untagged>",
+       "' but the engine results are '", G$R0_scenario,
+       "'. Re-run MAYV_ca_costs.R for this scenario BEFORE MAYV_ca_outputs.R.")
+cost_pd <- mayv_cost$cost_pd
 stopifnot(nrow(cost_pd[[1]]) == nrow(base_pd))    # cost draws align with engine draws
 
 # outcome -> (source, column). "engine" = per-draw burden; "cost" = per-draw cost layer.

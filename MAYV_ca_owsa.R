@@ -33,6 +33,14 @@ DEFS_ONLY <- TRUE
 source("MAYV_ca_engine.R")        # seirv_vaccinated_MAYV, outcome_one, severity/DALY params
 E <- readRDS("MAYV_ca_lhs_ensemble.rds")
 M <- readRDS("MAYV_ca_engine_results.rds")
+# GUARD: both files are untagged "current scenario" artefacts written by different scripts.
+# If the ensemble and the engine results come from different R0 scenarios (e.g. the engine
+# was re-run after switching R0_SCENARIO without re-running the LHS), every result below
+# would silently mix them. Same class of bug as the costs/outputs pairing.
+if (!identical(E$R0_scenario, M$R0_scenario))
+  stop("MAYV_ca_lhs_ensemble.rds is scenario '", E$R0_scenario,
+       "' but MAYV_ca_engine_results.rds is '", M$R0_scenario,
+       "'. Re-run MAYV_ca_lhs.R then MAYV_ca_engine.R for one scenario before this script.")
 
 # ------------------------------------------------------------
 # 1. Central values and one-way bounds
@@ -45,7 +53,7 @@ stopifnot(is.finite(R0_BASE))
 R0_SWEEP <- seq(1.1, 3.6, by = 0.1)                # 26 points spanning both scenarios
 R0_MARKS <- c(low = 1.20, high = 2.10)             # the two reported scenarios, for figures
 
-BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 0.50,
+BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 0.33,
              cov = 0.30, deliv = 0.10, delay = 2, immun = 2, env = "hybrid")
 
 # TWO inputs are deliberately NOT tornado rows, because neither is a parameter with an
@@ -63,7 +71,7 @@ BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 0.50,
 # REPORTED ones. It therefore has exactly zero effect on true cases averted.
 BOUNDS <- list(
   imm   = c(0.03, 0.18),                               # Lima 2021 Central-West 95% CI
-  ve    = c(0.25, 0.75),                               # hypothetical cross-protection
+  ve    = c(0.15, 0.55),                               # Kostecki 2026 cross-protection, 95% UI
   cov   = c(0.20, 0.40),
   deliv = c(0.09, 0.11),
   delay = c(1, 3),

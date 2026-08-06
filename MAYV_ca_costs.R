@@ -324,7 +324,12 @@ write_xlsx(list(notes = sh_notes, unit_costs = sh_units, cost_per_case = sh_perc
                 cost_averted = sh_averted,
                 audit_point_estimate = sh_audit, goncalves_check = sh_check),
            "MAYV_ca_costs.xlsx")
+# Tag the file with the scenario it was built from. MAYV_ca_outputs.R asserts this
+# matches its own engine results: the two are written by SEPARATE scripts, so running
+# them out of order (or across scenarios) would otherwise silently mix a low-R0 cost
+# layer with high-R0 burden and report a near-zero cost reduction.
 saveRDS(list(cost_pd = cost_pd, count_pd = count_pd, outbreak = ok,
+             R0_scenario = G$R0_scenario, R0_fixed = G$R0_fixed,
              pc = list(acute = pc_acute, sub = pc_sub, chr = pc_chr, hosp = pc_hosp)),
         "MAYV_ca_costs.rds")
 

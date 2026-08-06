@@ -133,7 +133,7 @@ notes <- data.frame(item = c(
   "Averted symptomatic cases per 100,000 doses administered. Ixchiq is deployed once, so the CHIKV and MAYV models consume the same doses (19,584 vs 19,589 median); normalising by doses therefore puts the two pathogens in a shared unit with a natural zero, without dividing one model by the other. Doses do not vary with R0 or seeding week -- the campaign is fixed -- so this column is proportional to averted cases within each table.",
   "Absolute burden is highly sensitive to seeding week; % averted is nearly invariant, because the vaccine's effect depends on the timing overlap between the epidemic and the coverage curve, and the seasonal envelope pins the peak regardless of seeding.",
   sprintf("%d. Transmission draws (gamma, sigma, rho, prop_symp, prior immunity) come from the ensemble and vaccine draws from the engine, so the R0 = 2.1 / seed-week-1 cell reproduces the headline result exactly.", ND),
-  "Pre-outbreak campaign at 2025-W40, coverage of eligible 18-59 Beta(30%, 20-40%), disease-blocking efficacy Beta(50%, 25-75%), VE_inf = 0."),
+  "Pre-outbreak campaign at 2025-W40, coverage of eligible 18-59 Beta(30%, 20-40%), disease-blocking efficacy Beta(33%, 95% UI 15-55%; Kostecki et al. 2026), VE_inf = 0."),
   stringsAsFactors = FALSE)
 
 
