@@ -42,6 +42,10 @@ if (!identical(E$R0_scenario, M$R0_scenario))
        "' but MAYV_ca_engine_results.rds is '", M$R0_scenario,
        "'. Re-run MAYV_ca_lhs.R then MAYV_ca_engine.R for one scenario before this script.")
 
+# Natural-history constants (defined before BASE, which uses PSYMP)
+GAMMA <- E$base_gamma; SIGMA <- E$base_sigma; PSYMP <- 0.5242478
+EVAL_WIN <- 1:T_weeks
+
 # ------------------------------------------------------------
 # 1. Central values and one-way bounds
 # ------------------------------------------------------------
@@ -53,8 +57,10 @@ stopifnot(is.finite(R0_BASE))
 R0_SWEEP <- seq(1.1, 3.6, by = 0.1)                # 26 points spanning both scenarios
 R0_MARKS <- c(low = 1.20, high = 2.10)             # the two reported scenarios, for figures
 
-BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 0.33,
-             cov = 0.30, deliv = 0.10, delay = 2, immun = 2, env = "hybrid")
+BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 4/12,
+             cov = 0.30, deliv = 0.10, delay = 2, immun = 2, env = "hybrid",
+             psymp = PSYMP,                        # CHIKV-equivalent symptomatic fraction
+             latent = 1/SIGMA)                     # latent period, weeks (Caicedo 3.0 d)
 
 # TWO inputs are deliberately NOT tornado rows, because neither is a parameter with an
 # ordered uncertainty range; both are structural choices reported in the
@@ -65,13 +71,23 @@ BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 0.33,
 #               rainfall shape and the hybrid. "Lower" and "upper" are meaningless for
 #               a categorical choice, and the rainfall arm additionally peaks before the
 #               campaign completes, so a single bar would conflate size with timing.
+#   latent   -- 3.0 d (Caicedo et al. 2021, base) vs the earlier 12 d assumption. Also a
+#               structural choice, and a consequential one: it changes the GENERATION TIME
+#               (1.43 vs 2.71 wk), hence how many generations fit inside the transmission
+#               season before the dry-season tail collapses it. R_eff is unchanged, but
+#               the realised outbreak is far larger at the shorter latent period.
+#   prop_symp -- 52.4% (CHIKV-equivalent, base) vs 90% (MAYV-specific). Two competing
+#               ASSUMPTIONS, not a range on one quantity. It is also a pure multiplier:
+#               it never enters transmission, so infections and the attack rate are
+#               identical and only the SCALE of symptomatic burden changes (x1.717).
+#               A tornado bar would show the scaling and hide the invariance.
 # The reporting rate is also excluded, but for a different reason: MAYV is not fitted,
 # so rho never enters the transmission model. The epidemic size comes from R0, prior
 # immunity and the seed; rho is applied afterwards only to convert TRUE cases into
 # REPORTED ones. It therefore has exactly zero effect on true cases averted.
 BOUNDS <- list(
   imm   = c(0.03, 0.18),                               # Lima 2021 Central-West 95% CI
-  ve    = c(0.15, 0.55),                               # Kostecki 2026 cross-protection, 95% UI
+  ve    = c(0.109, 0.610),                             # Kostecki 2026, Beta(4,8) 95% UI
   cov   = c(0.20, 0.40),
   deliv = c(0.09, 0.11),
   delay = c(1, 3),
@@ -82,9 +98,6 @@ PAR_LAB <- c(R0 = "Peak R0", imm = "Rate of exposure",
              cov = "Vaccine coverage", deliv = "Weekly delivery speed",
              delay = "Delay in deployment", immun = "Time to immunity",
              env = "Seasonal envelope (inherited)")
-
-GAMMA <- E$base_gamma; SIGMA <- E$base_sigma; PSYMP <- 0.5242478
-EVAL_WIN <- 1:T_weeks
 
 # Seasonal envelopes: hybrid (base) vs its two pure components, each peak-normalised
 env_of <- function(tag) {
@@ -105,20 +118,25 @@ run_scenario <- function(p) {
   sus    <- N * (1 - p$imm)
   I0i    <- E$I0_total * sus / sum(sus)
   beta_t <- p$R0 * GAMMA * season
-  st     <- min(E$seed_week + 0, T_weeks)
+  psi    <- if (!is.null(p$psymp)) p$psymp else PSYMP   # symptomatic fraction (see BASE)
+  sg     <- if (!is.null(p$latent)) 1/p$latent else SIGMA   # latent PERIOD (wk) -> rate
   sim <- function(cov, vb)
-    seirv_vaccinated_MAYV(T_weeks, A, N, Rimm, I0i, beta_t, SIGMA, GAMMA, p$rho,
+    seirv_vaccinated_MAYV(T_weeks, A, N, Rimm, I0i, beta_t, sg, GAMMA, p$rho,
       target_age, cov, p$deliv, start_pre + p$delay, VE_inf = 0, VE_block = vb,
-      immun_delay = p$immun, prop_symp = PSYMP, E0 = E$E0, seed_week = E$seed_week)
+      immun_delay = p$immun, prop_symp = psi, E0 = E$E0, seed_week = E$seed_week)
   b <- sim(0, 0); v <- sim(p$cov, p$ve)
-  psi <- PSYMP
   symp_b <- sum(colSums(psi * b$new_infections)[EVAL_WIN])
   symp_v <- sum(colSums(psi * v$new_infections * (1 - p$ve * v$coverage_frac))[EVAL_WIN])
   inf    <- sum(b$new_infections[, EVAL_WIN])
   pool   <- sum(N * (1 - p$imm))
+  # Doses = the whole eligible 18-59 cohort times coverage, matching the engine's
+  # `doses` column (target_pop_elig * cov). Scale-free benefit metric, so rows with
+  # different outbreak sizes stay comparable.
+  doses  <- target_pop_elig * p$cov
   list(symptomatic_base = symp_b, averted = symp_b - symp_v,
        attack = 100 * inf / pool,
-       hosp_averted = (symp_b - symp_v) * hosp_rate)
+       hosp_averted = (symp_b - symp_v) * hosp_rate,
+       doses = doses, averted_per_100k = 1e5 * (symp_b - symp_v) / doses)
 }
 
 # ------------------------------------------------------------
@@ -147,20 +165,39 @@ for (nm in names(BOUNDS)) {
 owsa <- do.call(rbind, rows)
 
 # ---- structural sensitivities (NOT tornado rows): R0 scenario + seasonal envelope ----
+# One row per structural setting, all sharing the same columns. averted_per_100k_doses
+# is the scale-free benefit metric (1e5 x averted / doses), so settings that produce very
+# different outbreak sizes remain directly comparable.
+srow <- function(input, setting, p) {
+  r <- run_scenario(p)
+  data.frame(input = input, setting = setting,
+             symptomatic_base = r$symptomatic_base, averted = r$averted,
+             averted_per_100k_doses = r$averted_per_100k,
+             attack_pct = r$attack, pct_reduction = 100*r$averted/r$symptomatic_base,
+             row.names = NULL)
+}
 struct <- rbind(
   # Both fixed R0 scenarios, for context (the full curve is in the r0_response sheet).
-  do.call(rbind, lapply(unname(R0_MARKS), function(x) {
-    r <- run_scenario(modifyList(BASE, list(R0 = x)))
-    data.frame(input = "Peak R0 (scenario, FIXED)", setting = sprintf("%.2f", x),
-               symptomatic_base = r$symptomatic_base, averted = r$averted,
-               attack_pct = r$attack, pct_reduction = 100*r$averted/r$symptomatic_base) })),
-  do.call(rbind, lapply(c("beta", "hybrid", "rain"), function(x) {
-    r <- run_scenario(modifyList(BASE, list(env = x)))
-    data.frame(input = "Seasonal envelope (structure)",
-               setting = c(beta = "pure CHIKV beta", hybrid = "hybrid (base case)",
-                           rain = "pure rainfall")[[x]],
-               symptomatic_base = r$symptomatic_base, averted = r$averted,
-               attack_pct = r$attack, pct_reduction = 100*r$averted/r$symptomatic_base) })))
+  do.call(rbind, lapply(unname(R0_MARKS), function(x)
+    srow("Peak R0 (scenario, FIXED)", sprintf("%.2f", x), modifyList(BASE, list(R0 = x))))),
+  do.call(rbind, lapply(c("beta", "hybrid", "rain"), function(x)
+    srow("Seasonal envelope (structure)",
+         c(beta = "pure CHIKV beta", hybrid = "hybrid (base case)",
+           rain = "pure rainfall")[[x]], modifyList(BASE, list(env = x))))),
+  # Symptomatic fraction: CHIKV-equivalent (base) vs the MAYV-specific 90% reported in
+  # the literature. Infections and attack rate are identical between the two -- only the
+  # scale of symptomatic burden moves -- so the pair documents the multiplier explicitly.
+  do.call(rbind, lapply(list(c(PSYMP, "52.4% (CHIKV-equivalent, base case)"),
+                             c(0.90,  "90% (MAYV-specific literature)")), function(x)
+    srow("Symptomatic fraction (structure)", x[2],
+         modifyList(BASE, list(psymp = as.numeric(x[1])))))),
+  # Latent period: Caicedo's 3.0 d intrinsic incubation (base) vs the earlier 12 d value.
+  # Unlike prop_symp this is NOT a multiplier -- it changes the generation time, so the
+  # infections and attack rate move too.
+  do.call(rbind, lapply(list(c(3/7,  "3.0 d (Caicedo et al. 2021, base case)"),
+                             c(12/7, "12 d (earlier assumption)")), function(x)
+    srow("Latent period (structure)", x[2],
+         modifyList(BASE, list(latent = as.numeric(x[1])))))))
 rownames(struct) <- NULL
 
 # ------------------------------------------------------------

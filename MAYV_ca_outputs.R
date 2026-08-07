@@ -130,7 +130,7 @@ notes <- data.frame(
             as.character(length(ok)),
             "Disease-blocking ONLY (VE_inf = 0), pre-outbreak campaign -> infections never averted.",
             sprintf("%.0f%%", 100*median(G$cov_d)),
-            sprintf("%.0f%% (Kostecki et al. 2026, ~33%% of CHIKV patients cross-neutralised MAYV; 95%% UI 15-55%%)", 100*median(G$veb_d)),
+            sprintf("%.1f%% mean (Kostecki et al. 2026: 4 of 12 CHIKV patients cross-neutralised MAYV; Beta(4,8), 95%% UI 10.9-61.0%%)", 100*mean(G$veb_d)),
             "Zero: no confirmed MAYV-attributable death -> CFR = 0, so deaths & YLL = 0, DALY = YLD.",
             "BORROWED CHIKV (Hyolim Table S4) -- CHIKV-equivalent UPPER bound, not measured MAYV.",
             "Per-draw (Beta, median ~0.25).",

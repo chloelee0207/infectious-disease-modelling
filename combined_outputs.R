@@ -134,8 +134,38 @@ ch_dose <- G$timings[["pre-outbreak"]] + 2                       # median delay 
 mv_dose <- if (!is.null(M$dose_start))   M$dose_start            else ch_dose
 mv_len  <- if (!is.null(M$deliv_median)) round(1/M$deliv_median) else 10
 
+# ------------------------------------------------------------
+# Figure saving. Every manuscript figure is written TWICE:
+#   <name>.png         screen resolution, for drafting and quick review
+#   <name>_600dpi.png  600 dpi, for submission
+# Both are kept deliberately: a Word document with several 600-dpi images gets very large,
+# so the screen-resolution copy is the fallback if the .docx becomes unwieldy. The figures
+# are identical in physical size (inches) and layout -- only the pixel density differs, so
+# they are interchangeable in the document.
+# ------------------------------------------------------------
+DPI_PUB <- 600
+save_fig <- function(file, plot, width, height, dpi) {
+  ggsave(file, plot, width = width, height = height, dpi = dpi)
+  hi <- sub("[.]png$", "_600dpi.png", file)
+  ggsave(hi, plot, width = width, height = height, dpi = DPI_PUB)
+  cat(sprintf("  saved %s (%d dpi, %.1f MB) and %s (%d dpi, %.1f MB)\n",
+              file, dpi, file.size(file)/1e6, hi, DPI_PUB, file.size(hi)/1e6))
+  invisible(NULL)
+}
+
 epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = FS$epi_annot_chik) {
   d$panel <- factor(strip)
+  # Annotation placement. Two traps here:
+  #   * vjust > 1 offsets the block by a fraction of its OWN height, so the 2-line Mayaro
+  #     label sat higher than the 3-line chikungunya one. Use vjust = 1 (tops aligned).
+  #   * vjust = 1 at y = Inf then sits flush against the frame. Deriving a y from
+  #     max(d$hi) does NOT fix it: d holds several measures/scenarios, so its maximum is
+  #     not the plotted range and the axis blows up.
+  # Simplest robust fix: keep y = Inf / vjust = 1 and prepend a blank line. Line height is
+  # identical in both panels, so both blocks drop by exactly one line -> equal gap, and it
+  # cannot interact with the data range.
+  TOP_EXP <- 0.20                 # y-scale headroom above the data, for the annotation
+  ann <- paste0("\n", ann)
   ggplot(d, aes(week, med, colour = scenario, fill = scenario)) +
     annotate("rect", xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf,
              fill = "#3a7d3a", alpha = .12) +
@@ -143,29 +173,39 @@ epicurve <- function(d, strip, ann, xmin, xmax, ylab, ann_size = FS$epi_annot_ch
               position = "identity", alpha = .25, colour = NA) +
     geom_line(data = subset(d, measure == "Reported"),
               aes(linetype = measure), linewidth = .8) +
-    # Anchored at week 2.5 rather than x = -Inf: with -Inf the hjust offset scales with
-    # the text width, so the two panels get different left margins and both sit hard
-    # against the axis. A data-unit anchor gives the same gap in both.
-    annotate("text", x = 2.5, y = Inf, label = ann, hjust = 0, vjust = 1.3,
+    # Anchored at week 1 rather than x = -Inf: with -Inf the hjust offset scales with
+    # the text width, so the two panels get different left margins. A data-unit anchor
+    # gives the same small gap in both.
+    # vjust = 1 (NOT 1.3): vjust > 1 offsets the block by a FRACTION OF ITS OWN HEIGHT,
+    # so the 2-line Mayaro label was pushed down less than the 3-line chikungunya one and
+    # sat visibly higher. vjust = 1 tops-aligns both regardless of line count; the
+    # headroom comes from the y-scale expansion below instead.
+    annotate("text", x = 1, y = Inf, label = ann, hjust = 0, vjust = 1,
              size = ann_size, lineheight = 1.15) +
     expand_limits(y = 0) +
     facet_wrap(~ panel) +
     scale_colour_manual(values = scen_cols, aesthetics = c("colour", "fill"), drop = FALSE) +
     scale_linetype_manual(values = c("Reported" = "dotted"),
                           labels = c("Reported" = "Reported symptomatic cases"), name = NULL) +
-    guides(fill   = guide_legend(order = 1, nrow = 2, byrow = TRUE,
+    guides(fill   = guide_legend(order = 1, nrow = 1,
                                  override.aes = list(linetype = 0, alpha = .55)),
-           colour = guide_legend(order = 1, nrow = 2, byrow = TRUE,
+           colour = guide_legend(order = 1, nrow = 1,
                                  override.aes = list(linetype = 0)),
-           linetype = guide_legend(order = 2, override.aes = list(colour = "grey25"))) +
+           linetype = guide_legend(order = 2, nrow = 1,
+                                   override.aes = list(colour = "grey25"))) +
     scale_x_continuous(breaks = c(1, seq(10, T_sim, by = 10))) +
-    scale_y_continuous(labels = scales::comma) +
+    # extra headroom at the top for the (now top-aligned) annotation
+    scale_y_continuous(labels = scales::comma,
+                       expand = expansion(mult = c(0.05, TOP_EXP))) +
     labs(x = "Week (index, 1 = 2025-W24)", y = ylab, colour = NULL, fill = NULL) +
     theme_bw(FS$epi_base) +
     theme(legend.position = "bottom",
+          # the two guides STACK vertically: the three vaccination scenarios on one row,
+          # then "Reported symptomatic cases" on its own row underneath
+          legend.box = "vertical",
+          legend.box.just = "center",
+          legend.spacing.y = unit(1, "pt"),
           strip.text = element_text(face = "bold", size = FS$epi_strip),
-          # the four keys overrun an 11in figure on one line, so the scenario guide
-          # wraps to two rows rather than being shrunk until it is unreadable
           legend.text = element_text(size = FS$epi_legend),
           legend.key.size = unit(.9, "lines"),
           axis.text  = element_text(size = FS$epi_axis_text),
@@ -193,8 +233,14 @@ p_epi <- pE_c + (pE_m + guides(fill = "none", colour = "none", linetype = "none"
   # strip across the bottom of BOTH panels; without it the legend belongs to Chikungunya
   # and sits left-aligned under that panel alone.
   plot_layout(ncol = 2, widths = c(1, 1), guides = "collect") &
-  theme(legend.position = "bottom", legend.justification = "center")
-ggsave("CHIKV_MAYV_epicurves.png", p_epi, width = 11, height = 4.8, dpi = 130)
+  # legend.box MUST be set here as well as inside epicurve(): with guides = "collect"
+  # patchwork lays the collected guides out using the PATCHWORK-level theme, so a
+  # per-subplot legend.box is ignored. "vertical" stacks the two guide boxes -> the three
+  # vaccination scenarios on one row, "Reported symptomatic cases" on a second.
+  theme(legend.position = "bottom", legend.justification = "center",
+        legend.box = "vertical", legend.box.just = "center",
+        legend.spacing.y = unit(1, "pt"))
+save_fig("CHIKV_MAYV_epicurves.png", p_epi, width = 11, height = 4.8, dpi = 130)
 cat(sprintf("Saved CHIKV_MAYV_epicurves.png (MAYV = '%s', fixed R0 = %.2f, all %d draws).\n",
             MAYV_EPI_SCENARIO, M$R0_fixed, M$N_DRAWS))
 
@@ -294,7 +340,7 @@ with_ylab <- function(blk) wrap_elements(patchworkGrob(blk)) +
         plot.margin = margin(t = 0, r = 0, b = 0, l = 0))
 
 p_burden <- with_ylab(burden_rows)
-ggsave("combined_residual_burden.png", p_burden, width = 9.5, height = 9, dpi = 150)
+save_fig("combined_residual_burden.png", p_burden, width = 9.5, height = 9, dpi = 150)
 cat("Saved combined_residual_burden.png (B DALYs / C deaths / D healthcare cost).\n")
 
 # ------------------------------------------------------------
@@ -339,7 +385,7 @@ if (!all(file.exists("CHIKV_ca_owsa.rds", "MAYV_ca_owsa.rds"))) {
   }
   g <- tor(ca, blA, "A   Chikungunya", FALSE) + tor(mb, blB, "B   Mayaro", TRUE) +
     plot_layout(design = "AA\nB#", heights = c(1, 1.05))   # A spans, B is left column only
-  ggsave("CHIKV_MAYV_owsa.png", g, width = 11, height = 8.4, dpi = 130)
+  save_fig("CHIKV_MAYV_owsa.png", g, width = 11, height = 8.4, dpi = 130)
   cat("Saved CHIKV_MAYV_owsa.png (A = CHIKV, B = MAYV).\n")
 }
 
@@ -361,6 +407,9 @@ pA_m <- pE_m + guides(fill = "none", colour = "none", linetype = "none")
 # PATCHWORK's theme, so its size must be set here with `&`, not inside epicurve().
 row_A <- pA_c + pA_m + plot_layout(widths = c(1, 1), guides = "collect") &
   theme(legend.position = "bottom", legend.justification = "center",
+        # same two-row legend as the standalone epicurve figure (see section 1)
+        legend.box = "vertical", legend.box.just = "center",
+        legend.spacing.y = unit(1, "pt"),
         legend.text = element_text(size = FS$epi_legend), legend.key.size = unit(1.1, "lines"),
         plot.margin = margin(t = 5.5, r = 5.5, b = 2, l = 5.5))
 
@@ -370,7 +419,7 @@ row_BCD <- plot_spacer() + with_ylab(burden_rows) + plot_spacer() +
 
 master <- row_A / row_BCD + plot_layout(heights = c(1.3, 2.7))
 
-ggsave("combined_master.png", master, width = 13, height = 12.5, dpi = 150)
+save_fig("combined_master.png", master, width = 13, height = 12.5, dpi = 150)
 ggsave("combined_master.pdf", master, width = 11, height = 12.5)
 cat("Saved combined_master.png / .pdf (A epicurves, B DALYs, C deaths, D healthcare cost).\n")
 

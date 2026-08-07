@@ -190,14 +190,13 @@ if (!isTRUE(DEFS_ONLY)) {
 beta_from_ci <- function(m, lo, hi) { v <- ((hi-lo)/(2*1.96))^2; k <- m*(1-m)/v-1; c(a=m*k, b=(1-m)*k) }
 cov_ab <- beta_from_ci(0.30, 0.20, 0.40)     # coverage of eligible 18-59
 # Disease-blocking efficacy against MAYV. Kostecki et al. 2026: of 12 CHIKV patients with
-# no prior MAYV exposure, ~33% (4/12) developed low-titre MAYV cross-neutralising antibody
-# (titres 20-40). We therefore centre VE_block on 33%.
-#   NOT beta_from_ci(): that matches the MEAN, and a Beta at 0.33 is right-skewed, so a
-#   mean of 0.33 gives a MEDIAN of 0.324. Since 33% is the reported POINT ESTIMATE, we fit
-#   the MEDIAN to 0.33 instead, preserving the +/-0.20 spread. The 95% UI that follows is
-#   0.15-0.55 (not 0.13-0.53): you cannot have both a 0.33 median and a CI symmetric about
-#   0.33 from a Beta. (The old 50% row was exact only because Beta(7.18,7.18) is symmetric.)
-veb_ab <- c(a = 6.66, b = 13.18)            # median 0.330, mean 0.336, 95% UI 0.151-0.551
+# no prior MAYV exposure, 4 (33%) developed low-titre MAYV cross-neutralising antibody
+# (titres 20-40). This is COUNT DATA, so the Beta is not fitted to an assumed interval --
+# it IS the distribution of the proportion: Beta(r, n-r) = Beta(4, 8), the standard PSA
+# parameterisation. Its mean is exactly 4/12 = 0.3333, and the 95% UI (0.109-0.610) comes
+# from the data alone; cf. the exact Clopper-Pearson interval for 4/12, 0.099-0.651.
+# The interval is wide because n = 12 is small -- that is the honest evidence base.
+veb_ab <- c(a = 4, b = 8)                   # mean 0.3333 (=4/12), 95% UI 0.109-0.610
 del_ab <- beta_from_ci(0.10, 0.09, 0.11)     # weekly delivery speed
 
 lhs_col <- function(n) (sample.int(n) - runif(n)) / n
