@@ -57,13 +57,18 @@
 #                Read as a PEAK (not annual-mean) value: this is the conservative reading,
 #                since an annual-mean 1.2 would imply a peak of ~3+ and a far larger
 #                outbreak. A single introduction does not self-sustain at this R0.
-#   high = 2.10  Sustained urban Aedes-borne transmission: the LOWER bound of Caicedo's
-#                Amazon-basin range (2.1-2.9), i.e. the most conservative value in that
-#                range. Taking BOTH R0 and the latent period from Caicedo keeps the
-#                natural history and the reproduction number internally consistent.
+#   high = 2.04  Urban Aedes-borne transmission. This is the GEOMETRIC MEAN of Dodero-Rojas
+#                et al. 2020's [1.18, 3.51] -- the only MAYV-SPECIFIC R0 range published --
+#                i.e. the central value of that range: sqrt(1.18 * 3.51) = 2.035. Geometric
+#                rather than arithmetic because R0 lives on a ratio scale.
+#                Preferred over the lower bound of Caicedo's Amazon-basin range (2.1-2.9):
+#                Caicedo derive R0 from age-stratified seroprevalence via catalytic models,
+#                so 2.1-2.9 is an ENDEMIC-AVERAGE reproduction number, not a seasonal peak.
+#                Importing one of its bounds as a PEAK R0 would silently mix two different
+#                quantities; the geometric centre of an explicitly-stated R0 range does not.
 #                Context: the peak R0 fitted for CHIKV in THIS municipality is 2.67
 #                (95% UI 2.39-3.13), and the Belterra 1977-78 growth rate implies ~1.9-2.5,
-#                so 2.10 is conservative against both. It is a COUNTERFACTUAL: it assumes
+#                so 2.04 is conservative against both. It is a COUNTERFACTUAL: it assumes
 #                MAYV acquires Ae. aegypti transmission competence it is not currently
 #                known to possess, and is not a prediction.
 #                NB R0 and the latent period are partly INTERCHANGEABLE in setting outbreak
@@ -207,9 +212,9 @@ ps_a <- 35.84; ps_b <- 32.56                    # prop_symp ~ Beta, median 0.524
 
 # R0 = wet-season PEAK R_eff (r0_is_peak = TRUE above), FIXED PER SCENARIO (see the
 # header for why it is not sampled). Two scenarios only; each is one transmission regime.
-if (!exists("R0_SCENARIO")) R0_SCENARIO <- "high"   # "high" = 2.10 | "low" = 1.20; overridable via a pre-set var
+if (!exists("R0_SCENARIO")) R0_SCENARIO <- "high"   # "high" = 2.04 | "low" = 1.20; overridable via a pre-set var
 R0_FIXED <- c(low = 1.20,      # Caicedo et al. 2021 outside-Amazon-basin, read as a PEAK
-              high = 2.10)     # Caicedo Amazon-basin LOWER bound (range 2.1-2.9)
+              high = 2.04)     # geometric mean of Dodero-Rojas [1.18, 3.51]
 stopifnot(R0_SCENARIO %in% names(R0_FIXED))
 R0_VALUE  <- unname(R0_FIXED[[R0_SCENARIO]])
 R0_median <- R0_VALUE                           # name kept for downstream compatibility
@@ -233,7 +238,7 @@ cat(sprintf("FIXED (not sampled): R0 = %.2f  (%s scenario, %s)\n",
 # Seasonality summary. R0 above is the WET-SEASON PEAK, because the envelope is
 # peak-normalised (r0_is_peak). The mean of season(t) is well below 1, so the
 # year-average transmission intensity is much lower than the headline R0 -- report both,
-# or a reader will read "R0 = 2.10" as an unforced R0 and expect a large attack rate.
+# or a reader will read "R0 = 2.04" as an unforced R0 and expect a large attack rate.
 # The model therefore runs close to the epidemic threshold for most of the year, which
 # is why burden is a steep function of R0 rather than a saturating one.
 # ------------------------------------------------------------

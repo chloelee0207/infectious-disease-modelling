@@ -18,7 +18,7 @@
 #
 # MAYV-SPECIFIC FRAMING (differs from CHIKV, which is fitted to a real outbreak):
 #   * NO TAKE-OFF CONDITIONING. R0 is FIXED per scenario in MAYV_ca_lhs.R (low = 1.20,
-#     high = 2.10), so every draw is the same transmission regime and outbreak size is
+#     high = 2.04), so every draw is the same transmission regime and outbreak size is
 #     unimodal. Every figure is summarised over ALL draws (G$outbreak is now every row).
 #     The 95% UIs carry natural-history / reporting / symptomatic-fraction / prior-immunity
 #     / vaccine / severity-DALY uncertainty, NOT the between-setting R0 span.

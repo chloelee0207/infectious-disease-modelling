@@ -31,8 +31,11 @@ suppressMessages({library(ggplot2); library(dplyr); library(writexl); library(sp
 
 N_DRAWS <- if (exists("RHO_SENS_DRAWS")) RHO_SENS_DRAWS else 500
 
-# ---- override the spline: estimate beta over ALL 52 weeks -------------------------
-active_weeks <<- T_weeks
+# ---- spline window --------------------------------------------------------------
+# Default 52 = the whole window, removing the base case's flat-hold. Set
+# RHO_SENS_ACTIVE_WEEKS <- 49 to keep the BASE-CASE spline, which isolates the reporting
+# rate as the only thing that differs from the main analysis.
+active_weeks <<- if (exists("RHO_SENS_ACTIVE_WEEKS")) RHO_SENS_ACTIVE_WEEKS else T_weeks
 basis_full   <<- ns(seq_len(active_weeks), df = df_spline, intercept = TRUE)
 gen_start    <<- c(cfl(log(c(seq(1.0, 2.2, length.out = peak_idx),
                              seq(2.2, 0.5, length.out = active_weeks - peak_idx)))), log(50))
@@ -165,7 +168,7 @@ notes <- data.frame(item = c("Departure 1", "Departure 2", "Held as in the base 
                              "Choice of prior family", "Immune and susceptible columns",
                              "Reading the rise column"),
   detail = c(
-  sprintf("beta_t is spline-estimated over ALL %d weeks. The base case uses active_weeks = 49 and holds beta flat to week 52, so any tail movement here is the fit's own.", T_weeks),
+  sprintf("beta_t is spline-estimated over %d of the %d weeks (base case: 49, holding beta flat to week 52). At 49 the reporting rate is the ONLY departure from the main analysis; at 52 the flat-hold is removed as well.", active_weeks, T_weeks),
   "Three reporting-rate settings: Beta(20,60) sampled (base case); a Beta fitted to 15.40% (7.02-38.87%) sampled; and 38.87% as a fixed point estimate with everything else still sampled.",
   "FOI ~ Lognormal(95% 0.003-0.020), gamma ~ N(0.54, 0.0714), latent ~ N(0.60, 0.05), prop_symp ~ Beta(35.84, 32.56), ridge penalty on log beta, peak weighting 1 + 10*(y/max y).",
   "attack < 100% and predicted reported total within 10% of the observed 8,204, as in CHIKV_ca_lhs.R.",
@@ -179,7 +182,7 @@ notes <- data.frame(item = c("Departure 1", "Departure 2", "Held as in the base 
 # When only a subset of scenarios is run (RHO_SENS_KEYS), MERGE into the existing
 # workbook rather than overwriting it, so a scenario can be added without re-fitting the
 # others. The summary and beta_bands sheets are rebuilt from the union.
-XL <- "CHIKV_ca_rho_sensitivity.xlsx"
+XL <- if (exists("RHO_SENS_XLSX")) RHO_SENS_XLSX else "CHIKV_ca_rho_sensitivity.xlsx"
 new_sheets <- setNames(lapply(RES, `[[`, "draws"), paste0("draws_", names(RES)))
 if (file.exists(XL) && exists("RHO_SENS_KEYS")) {
   old <- setNames(lapply(readxl::excel_sheets(XL),
@@ -217,4 +220,4 @@ p <- ggplot(band, aes(week, med, colour = rho, fill = rho)) +
 ggsave("CHIKV_ca_rho_sensitivity.png", p, width = 9.5, height = 5.6, dpi = 150)
 
 
-cat("\nWrote CHIKV_ca_rho_sensitivity.png and .xlsx\n")
+cat(sprintf("\nWrote %s and %s\n", XL, sub("\\.xlsx$", ".png", XL)))

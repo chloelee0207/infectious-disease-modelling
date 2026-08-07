@@ -8,7 +8,7 @@
 # + DALY draws on top.
 #
 # KEY MAYV FRAMING -- FIXED R0 PER SCENARIO, NO TAKE-OFF CONDITIONING. R0 is set by the
-# scenario in MAYV_ca_lhs.R (low = 1.20 Caicedo outside-Amazon; high = 2.10 Caicedo Amazon-basin
+# scenario in MAYV_ca_lhs.R (low = 1.20 Caicedo outside-Amazon; high = 2.04 geometric mean of
 # Aedes transmission) rather than sampled, because the published MAYV R0 figures are point
 # estimates from DIFFERENT settings and decades -- between-setting heterogeneity, not
 # uncertainty about one municipality. With R0 fixed, every draw is the same transmission

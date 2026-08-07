@@ -33,7 +33,7 @@ suppressMessages({library(dplyr); library(ggplot2); library(patchwork); library(
 
 # Which MAYV scenario to show. Reads the scenario-TAGGED results file so the figures
 # never depend on which scenario happened to run last.
-if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" R0 2.10 | "low" R0 1.20
+if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" R0 2.04 | "low" R0 1.20
 
 ARMS      <- c("Disease-blocking", "Disease + infection blocking")
 OUT_LV    <- c("Cumulative DALYs", "Cumulative deaths", "Healthcare cost")  # as stored in the .rds
@@ -398,7 +398,12 @@ pA_c <- pE_c + labs(tag = "A") +
         plot.tag.position = c(0, 1))
 # Both epicurve panels carry identical keys, so MAYV's copy is dropped at the SCALE
 # level -- a theme(legend.position = "none") would be undone by the shared `&` theme.
-pA_m <- pE_m + guides(fill = "none", colour = "none", linetype = "none")
+# Rebuilt rather than reused from pE_m so the master figure's strip is a plain "Mayaro":
+# in a multi-panel figure the R0 belongs in the caption, not repeated in a panel header.
+# The standalone CHIKV_MAYV_epicurves.png keeps "Mayaro (fixed R0 = x.xx)" because that
+# figure is often viewed on its own, where the scenario would otherwise be ambiguous.
+pA_m <- epicurve(epi_mv, "Mayaro", wrap_ann(ann_mv, 60), mv_dose, mv_dose + mv_len, NULL) +
+  guides(fill = "none", colour = "none", linetype = "none")
 
 # equal halves: the Mayaro curve needs as much room to be read as the Chikungunya one
 # guides = "collect" lifts the legend out of the Chikungunya panel and gives it its own

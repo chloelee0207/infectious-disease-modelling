@@ -6,7 +6,7 @@
 # No take-off conditioning: R0 is fixed, so there is no fizzle/take-off split.
 #
 # BASE CASE. Peak R0 is taken from the engine's fixed scenario value (M$R0_fixed --
-# low = 1.20 Caicedo outside-Amazon, high = 2.10 Caicedo Amazon-basin lower bound).
+# low = 1.20 Caicedo outside-Amazon, high = 2.04 geometric mean of Dodero-Rojas).
 # R0 is NOT a tornado row: it is scenario-defining, not a single-setting uncertain
 # parameter, and outbreak size is a steep convex function of it, so one bar would swamp
 # every other parameter and would misrepresent between-setting heterogeneity as
@@ -54,8 +54,12 @@ R0_BASE <- unname(M$R0_fixed)                      # the scenario's FIXED peak R
 stopifnot(is.finite(R0_BASE))
 # Dedicated R0 response curve (section 5b). Step 0.1 is deliberate: in the steep region a
 # 0.1 increment roughly doubles outbreak size, so a coarser grid would hide the threshold.
-R0_SWEEP <- seq(1.1, 3.6, by = 0.1)                # 26 points spanning both scenarios
-R0_MARKS <- c(low = 1.20, high = 2.10)             # the two reported scenarios, for figures
+R0_MARKS <- c(low = 1.20, high = 2.04)             # the two reported scenarios, for figures
+# The scenario values are UNIONED into the grid: 2.04 is not on a 0.1 step, so without this
+# the r0_response table and the scenario markers on the figures would miss it entirely.
+# round() before unique(): seq() yields values like 1.2000000000000002, so a raw unique()
+# keeps both that and the literal 1.20 and the grid gains a duplicate row.
+R0_SWEEP <- sort(unique(round(c(seq(1.1, 3.6, by = 0.1), unname(R0_MARKS)), 4)))
 
 BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 4/12,
              cov = 0.30, deliv = 0.10, delay = 2, immun = 2, env = "hybrid",
@@ -134,6 +138,11 @@ run_scenario <- function(p) {
   # different outbreak sizes stay comparable.
   doses  <- target_pop_elig * p$cov
   list(symptomatic_base = symp_b, averted = symp_b - symp_v,
+       # REPORTED = rho x TRUE, applied after the simulation. rho never enters transmission
+       # (seirv_vaccinated_MAYV does not even return a reported series), so these are the
+       # ONLY quantities a change in rho can move.
+       reported_symptomatic = p$rho * symp_b,
+       reported_averted     = p$rho * (symp_b - symp_v),
        attack = 100 * inf / pool,
        hosp_averted = (symp_b - symp_v) * hosp_rate,
        doses = doses, averted_per_100k = 1e5 * (symp_b - symp_v) / doses)
@@ -173,6 +182,8 @@ srow <- function(input, setting, p) {
   data.frame(input = input, setting = setting,
              symptomatic_base = r$symptomatic_base, averted = r$averted,
              averted_per_100k_doses = r$averted_per_100k,
+             reported_symptomatic = r$reported_symptomatic,
+             reported_averted = r$reported_averted,
              attack_pct = r$attack, pct_reduction = 100*r$averted/r$symptomatic_base,
              row.names = NULL)
 }
@@ -197,7 +208,17 @@ struct <- rbind(
   do.call(rbind, lapply(list(c(3/7,  "3.0 d (Caicedo et al. 2021, base case)"),
                              c(12/7, "12 d (earlier assumption)")), function(x)
     srow("Latent period (structure)", x[2],
-         modifyList(BASE, list(latent = as.numeric(x[1])))))))
+         modifyList(BASE, list(latent = as.numeric(x[1])))))),
+  # Reporting rate. Included for completeness, and the result is the point: because MAYV is
+  # NOT fitted, rho never enters the transmission model -- it converts TRUE cases to REPORTED
+  # ones after the simulation. Every true-burden column below is therefore IDENTICAL between
+  # the two settings, and only reported_symptomatic / reported_averted scale (x1.556).
+  # (Contrast the CHIKV OWSA, where rho ranks third: there it works backwards from the
+  # observed 8,204 cases to infer how large the true epidemic must have been.)
+  do.call(rbind, lapply(list(c(0.25,  "25% (base case)"),
+                             c(0.389, "38.9% (alternative point estimate)")), function(x)
+    srow("Reporting rate (structure)", x[2],
+         modifyList(BASE, list(rho = as.numeric(x[1])))))))
 rownames(struct) <- NULL
 
 # ------------------------------------------------------------
@@ -324,7 +345,7 @@ if (R0_PSA_RUN) {
   fmt3 <- function(m, lo, hi, d = 0)
     sprintf(paste0("%.", d, "f (%.", d, "f - %.", d, "f)"), m, lo, hi)
   r0_table <- data.frame(
-    `Peak R0`                       = sprintf("%.1f", r0_response_psa$R0),
+    `Peak R0`                       = sprintf("%.2f", r0_response_psa$R0),
     `Attack rate (%)`               = fmt3(r0_response_psa$attack_med, r0_response_psa$attack_lo,
                                            r0_response_psa$attack_hi, 2),
     `Baseline symptomatic cases`    = fmt3(r0_response_psa$symptomatic_med, r0_response_psa$symptomatic_lo,
@@ -370,7 +391,7 @@ notes <- data.frame(item = c("Analysis", "Base case R0", "R0 response curve", "V
                              "Seasonal envelope", "Fixed (not varied)", "Window"),
   detail = c(
   "Deterministic one-way sensitivity; MAYV is not fitted, so every run is a forward simulation.",
-  sprintf("Peak R0 %.2f, FIXED by the '%s' scenario (low = 1.20 Caicedo et al. 2021 outside-Amazon-basin; high = 2.10 Caicedo Amazon-basin lower bound, conservative vs the 2.67 peak R0 fitted for CHIKV in this municipality). Not sampled: published MAYV R0 figures are point estimates from different settings and decades.",
+  sprintf("Peak R0 %.2f, FIXED by the '%s' scenario (low = 1.20 Caicedo et al. 2021 outside-Amazon-basin; high = 2.04 geometric mean of Dodero-Rojas et al. 2020's [1.18, 3.51], the only MAYV-specific R0 range published, conservative vs the 2.67 peak R0 fitted for CHIKV in this municipality). Not sampled: published MAYV R0 figures are point estimates from different settings and decades.",
           R0_BASE, M$R0_scenario),
   sprintf("R0 is NOT a tornado row. It is scenario-defining, and outbreak size is a steep CONVEX function of it (%.0f -> %.0f symptomatic across R0 %.1f-%.1f), so one bar would swamp every other parameter. It is swept as a response curve instead: see the r0_response sheet and MAYV_ca_r0_response.png. No take-off conditioning is applied anywhere (R0 fixed -> one transmission regime, unimodal outbreak size).",
           min(r0_response$symptomatic_base), max(r0_response$symptomatic_base),
