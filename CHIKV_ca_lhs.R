@@ -112,6 +112,12 @@ prop_symp     <- 0.5242478
 df_spline     <- 5
 active_weeks  <- 49        # beta spline-estimated over weeks 1-49, held flat to week 52
 rho_pt        <- 0.25      # reference reporting rate for the point-estimate fit
+# Relative tolerance on the predicted reported total, used to screen draws after the
+# re-fit. Inf RETAINS ALL DRAWS: the +/-10% screen removed 28 of 1000, all under-predicting
+# because low reporting x low symptomatic fraction exhausted the susceptible pool. Those
+# draws are not worse by likelihood (24 of the 28 beat the retained median BIC), so the
+# screen was excluding fits that the data do not reject. Set to 0.10 to restore it.
+FIT_TOL       <- Inf
 prior_logmean <- log(0.54); prior_logsd <- 0.70
 peak_emphasis <- 10
 E0            <- rep(0, A)
@@ -221,7 +227,7 @@ for (i in 1:n) {
 # cut-off would be arbitrary and would discard draws with entirely plausible R0. The
 # binding check in practice is that the fit reproduces the observed 8,204 cases to
 # within 10%.
-ok <- which(!is.na(totrep) & attack < 100 & abs(totrep-obs_total)/obs_total < 0.10)
+ok <- which(!is.na(totrep) & attack < 100 & abs(totrep-obs_total)/obs_total < FIT_TOL)
 cat(sprintf("Kept %d / %d draws (dropped %d (attack >= 100%% or predicted total >10%% from observed)).\n",
             length(ok), n, n-length(ok)))
 
@@ -322,7 +328,8 @@ season_mean1 <- base$beta / mean(base$beta)
 stopifnot(length(season_mean1) == T_weeks, abs(mean(season_mean1) - 1) < 1e-6)
 saveRDS(season_mean1, "caldas_beta_season.rds")
 cat("Saved caldas_beta_season.rds (mean-1 beta envelope for the MAYV chain).\n")
-cat(sprintf("Saved CHIKV_ca_lhs_ensemble.rds (%d feasible draws).\n", length(ok)))
+cat(sprintf("Saved CHIKV_ca_lhs_ensemble.rds (%d of %d draws retained; FIT_TOL = %s).\n",
+            length(ok), n, format(FIT_TOL)))
 
 
 }  # end !DEFS_ONLY

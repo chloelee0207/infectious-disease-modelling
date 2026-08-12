@@ -190,13 +190,18 @@ g_m <- gr$Median; g_sd <- sd_of(gr)            # gamma is a RATE (per week)
 p_m <- sr$Median; p_sd <- sd_of(sr)            # sigma stored as a PERIOD (weeks) -> invert
 
 # LATENT-PERIOD SCENARIO. Base case = the workbook value: Caicedo et al. 2021's intrinsic
-# incubation period, 3.0 d (95% CrI 2.2-3.8) -> 0.4286 wk, N(0.4286, 0.058309). Using
-# Caicedo for BOTH the latent period and R0 keeps the natural history and the reproduction
-# number internally consistent (they were estimated together).
-#   NB Caicedo also report a distribution SD of 1.2 d (95% CrI 1.0-1.7). That is BETWEEN-
+# incubation period, 3.0 d (95% CrI 2.4-4.1) -- LOGNORMAL, fitted so the CrI endpoints are
+# the 2.5th/97.5th percentiles. Lognormal suits a duration bounded below by zero and is
+# right-skewed. NB the fitted MEDIAN is 3.14 d, not 3.0: no two-parameter lognormal can
+# reproduce a mean of 3.0 AND the CrI 2.4-4.1, because that interval is not symmetric about
+# 3.0 (its midpoint is 3.25). We preserve the INTERVAL, which carries the uncertainty, and
+# accept a 4.6% shift in the central value; forcing the median to 3.0 would instead shrink
+# the CrI to 2.30-3.92. Using Caicedo for BOTH the latent period and R0 keeps the natural
+# history and the reproduction number internally consistent (they were estimated together).
+#   NB Caicedo also report a distribution SD of 0.3 d (95% CrI 0.0-2.1). That is BETWEEN-
 #   INDIVIDUAL variation in incubation time, which the SEIR's exponential E->I waiting time
-#   already represents. The LHS samples uncertainty in the MEAN, so the 2.2-3.8 CrI on the
-#   mean is the correct input -- same convention as every other row in the workbook.
+#   already represents. The LHS samples uncertainty in the MEAN, so the CrI on the mean is
+#   the correct input -- same convention as every other row in the workbook.
 # Sensitivity: MAYV_LATENT <- "long12d" restores the previous 12-day assumption. That is a
 # STRUCTURAL sensitivity, not a wider prior: it changes the generation time from ~1.43 to
 # ~2.71 wk, so far fewer generations fit inside the supercritical season before the dry-
@@ -204,20 +209,43 @@ p_m <- sr$Median; p_sd <- sd_of(sr)            # sigma stored as a PERIOD (weeks
 # Latent period and R0 are therefore partly interchangeable in setting outbreak size.
 if (!exists("MAYV_LATENT")) MAYV_LATENT <- "caicedo3d"    # "caicedo3d" | "long12d"
 stopifnot(MAYV_LATENT %in% c("caicedo3d", "long12d"))
-if (MAYV_LATENT == "long12d") { p_m <- 1.7143; p_sd <- 0.05 }   # 12 d (11.3-12.7), pre-2026-07 base case
-cat(sprintf("Latent period scenario '%s': mean %.4f wk (%.1f d), sd %.6f\n",
-            MAYV_LATENT, p_m, 7*p_m, p_sd))
+# Lognormal on the PERIOD, fitted to the workbook's 95% UI endpoints (weeks).
+lat_lo <- sr$`95% UI lower`; lat_hi <- sr$`95% UI upper`
+if (MAYV_LATENT == "long12d") { lat_lo <- 11.31/7; lat_hi <- 12.69/7 }  # pre-2026-07 12 d assumption
+lat_ml <- (log(lat_lo) + log(lat_hi)) / 2
+lat_sl <- (log(lat_hi) - log(lat_lo)) / (2 * 1.96)
+p_m <- exp(lat_ml)                              # median period, weeks
+cat(sprintf("Latent period '%s': lognormal(meanlog %.6f, sdlog %.6f) -> median %.4f wk (%.2f d), 95%% UI %.2f-%.2f d\n",
+            MAYV_LATENT, lat_ml, lat_sl, p_m, 7*p_m, 7*lat_lo, 7*lat_hi))
 rab <- c(a = 20, b = 60)                        # rho ~ Beta(20,60), mean 0.25
-ps_a <- 35.84; ps_b <- 32.56                    # prop_symp ~ Beta, median 0.524
+# SYMPTOMATIC FRACTION -- MAYV-specific, replacing the borrowed CHIKV Beta(35.84, 32.56).
+# Bounded by the only two usable MAYV denominators:
+#   lower 48/71 = 0.6761  Belterra 1978 (71 seropositive, 23 of them asymptomatic)
+#   upper 33/36 = 0.9167  Azevedo narrative review
+# Lognormal fitted so those are the 2.5th/97.5th percentiles: right-skewed, so most mass
+# sits toward the LOWER end. That is the conservative direction, because most MAYV case
+# series ascertain only febrile presentations and so over-count the symptomatic fraction.
+# TRUNCATED at 1 -- a proportion cannot exceed it, and the untruncated fit puts ~0.1% of
+# draws above 1 (about 1 draw in 1000).
+ps_ml  <- (log(48/71) + log(33/36)) / 2
+ps_sl  <- (log(33/36) - log(48/71)) / (2 * 1.96)
+ps_cap <- plnorm(1, ps_ml, ps_sl)               # CDF mass below 1, for the truncation
 
 # R0 = wet-season PEAK R_eff (r0_is_peak = TRUE above), FIXED PER SCENARIO (see the
 # header for why it is not sampled). Two scenarios only; each is one transmission regime.
-if (!exists("R0_SCENARIO")) R0_SCENARIO <- "high"   # "high" = 2.04 | "low" = 1.20; overridable via a pre-set var
-R0_FIXED <- c(low = 1.20,      # Caicedo et al. 2021 outside-Amazon-basin, read as a PEAK
-              high = 2.04)     # geometric mean of Dodero-Rojas [1.18, 3.51]
-stopifnot(R0_SCENARIO %in% names(R0_FIXED))
-R0_VALUE  <- unname(R0_FIXED[[R0_SCENARIO]])
-R0_median <- R0_VALUE                           # name kept for downstream compatibility
+if (!exists("R0_SCENARIO")) R0_SCENARIO <- "high"   # "high" = 2.1-2.9 | "low" = 1.1-1.3
+# R0 is SAMPLED from the scenario's range, lognormal with the endpoints as the 2.5th/97.5th
+# percentiles. BOTH ranges are Caicedo et al. 2021, so the two scenarios are one quantity
+# measured in two ecological zones rather than a mix of sources -- no geometric mean taken
+# across a modelling paper's limits, and no single point estimate asserted.
+R0_RANGE <- list(low  = c(1.1, 1.3),    # outside the Amazon basin -- current ecology
+                 high = c(2.1, 2.9))    # Amazon basin, applied to Goias as a PEAK R0
+stopifnot(R0_SCENARIO %in% names(R0_RANGE))
+R0_LO <- R0_RANGE[[R0_SCENARIO]][1]; R0_HI <- R0_RANGE[[R0_SCENARIO]][2]
+R0_meanlog <- (log(R0_LO) + log(R0_HI)) / 2
+R0_sdlog   <- (log(R0_HI) - log(R0_LO)) / (2 * 1.96)
+R0_median  <- exp(R0_meanlog)                   # geometric centre of the range
+R0_VALUE   <- R0_median                         # name kept for downstream compatibility
 
 # Prior immunity (FLAT fraction), Lima et al. 2021 pooled CENTRAL-WEST exposure rate
 # 8% (95% CI 3-18%, I2=98%). Right-skewed -> Lognormal calibrated to the CI endpoints:
@@ -228,11 +256,14 @@ imm_meanlog <- (log(imm_lo95) + log(imm_hi95)) / 2         # median = exp(meanlo
 imm_sdlog   <- (log(imm_hi95) - log(imm_lo95)) / (2*1.96)
 imm_base    <- 0.08                                        # Lima central estimate, for the baseline run
 
-cat(sprintf("SAMPLED priors: gamma~N(%.3f,%.4f)  latent~N(%.3f,%.4f)wk (sigma=1/latent)  rho~Beta(%d,%d)  prop_symp~Beta(%.2f,%.2f)  immune~logN(med %.3f, 95%%[%.2f,%.2f])\n",
-            g_m, g_sd, p_m, p_sd, rab["a"], rab["b"], ps_a, ps_b,
+cat(sprintf("SAMPLED priors:\n  gamma     ~ N(%.3f, %.4f) /wk\n  latent    ~ logN(%.4f, %.4f) wk  -> median %.2f d, 95%% %.2f-%.2f d\n  rho       ~ Beta(%d, %d)\n  prop_symp ~ logN(%.4f, %.4f) trunc at 1 -> median %.3f, 95%% %.3f-%.3f\n  immune    ~ logN(med %.3f, 95%% [%.2f, %.2f])\n",
+            g_m, g_sd,
+            lat_ml, lat_sl, 7*exp(lat_ml), 7*qlnorm(.025, lat_ml, lat_sl), 7*qlnorm(.975, lat_ml, lat_sl),
+            rab["a"], rab["b"],
+            ps_ml, ps_sl, exp(ps_ml), qlnorm(.025, ps_ml, ps_sl), qlnorm(.975, ps_ml, ps_sl),
             exp(imm_meanlog), imm_lo95, imm_hi95))
-cat(sprintf("FIXED (not sampled): R0 = %.2f  (%s scenario, %s)\n",
-            R0_VALUE, R0_SCENARIO, if (r0_is_peak) "seasonal-peak R_eff" else "annual-mean"))
+cat(sprintf("R0 ~ lognormal on [%.1f, %.1f] (%s scenario, %s): median %.3f\n",
+            R0_LO, R0_HI, R0_SCENARIO, if (r0_is_peak) "seasonal-peak R_eff" else "annual-mean", R0_median))
 
 # ------------------------------------------------------------
 # Seasonality summary. R0 above is the WET-SEASON PEAK, because the envelope is
@@ -268,13 +299,14 @@ run_draw <- function(R0, g, s, r, ps, imm) {
        attack = 100 * sum(inf_wk) / sum(sus), immune = 100 * imm)
 }
 
-# Baseline at median inputs (dashed reference on the plots), at the scenario's fixed R0
-base <- run_draw(R0_VALUE, g_m, 1/p_m, rab["a"]/sum(rab), 0.5242478, imm_base)
+# Baseline at median inputs (dashed reference on the plots), at the scenario's MEDIAN R0
+PSYMP_MED <- exp(ps_ml)                          # median symptomatic fraction (~0.787)
+base <- run_draw(R0_median, g_m, 1/p_m, rab["a"]/sum(rab), PSYMP_MED, imm_base)
 cat(sprintf("Baseline R0=%.2f (%s scenario, median inputs, immune %.1f%%): total infections %.0f | total reported %.1f | peak reported wk %d (%.1f) | attack %.2f%%\n",
-            R0_VALUE, R0_SCENARIO, base$immune, base$tot_inf, base$tot_rep, base$peak_rep_wk, base$peak_rep, base$attack))
+            R0_median, R0_SCENARIO, base$immune, base$tot_inf, base$tot_rep, base$peak_rep_wk, base$peak_rep, base$attack))
 # Reference: the OTHER scenario's R0 under the SAME scaling, for context in the log.
-R0_other <- unname(R0_FIXED[[setdiff(names(R0_FIXED), R0_SCENARIO)]])
-base_other <- run_draw(R0_other, g_m, 1/p_m, rab["a"]/sum(rab), 0.5242478, imm_base)
+R0_other <- exp(mean(log(R0_RANGE[[setdiff(names(R0_RANGE), R0_SCENARIO)]])))
+base_other <- run_draw(R0_other, g_m, 1/p_m, rab["a"]/sum(rab), PSYMP_MED, imm_base)
 cat(sprintf("Reference R0=%.2f (other scenario, same scaling): total infections %.0f | total reported %.1f | attack %.3f%%\n",
             R0_other, base_other$tot_inf, base_other$tot_rep, base_other$attack))
 
@@ -287,13 +319,13 @@ cat(sprintf("Reference R0=%.2f (other scenario, same scaling): total infections 
 # ------------------------------------------------------------
 set.seed(2024); n <- 1000
 lhs_col <- function(n) (sample.int(n) - runif(n)) / n
-U   <- sapply(1:5, function(j) lhs_col(n))
+U   <- sapply(1:6, function(j) lhs_col(n))
 gam <- qnorm(U[,1], g_m, g_sd)                  # rate
-sig <- 1/qnorm(U[,2], p_m, p_sd)                # period -> rate
+sig <- 1/qlnorm(U[,2], lat_ml, lat_sl)          # lognormal PERIOD -> rate
 rho <- qbeta(U[,3], rab["a"], rab["b"])
-psy <- qbeta(U[,4], ps_a, ps_b)
+psy <- qlnorm(U[,4]*ps_cap, ps_ml, ps_sl)       # lognormal, truncated at 1
 imm <- qlnorm(U[,5], imm_meanlog, imm_sdlog)    # flat prior-immune fraction (Lima 2021)
-R0v <- rep(R0_VALUE, n)                         # FIXED: scenario-defining, not sampled
+R0v <- qlnorm(U[,6], R0_meanlog, R0_sdlog)      # SAMPLED from the scenario range
 
 rep_mat <- inf_mat <- matrix(NA_real_, n, T_weeks)
 tot_rep <- tot_inf <- peak_rep_wk <- peak_rep <- attack <- R0peak <- immune <- rep(NA_real_, n)
@@ -317,12 +349,13 @@ cat(sprintf("Kept %d / %d finite draws.\n", length(ok), n))
 # ------------------------------------------------------------
 q3   <- function(x) quantile(x, c(.5, .025, .975), na.rm = TRUE)
 band <- function(M) apply(M[ok, , drop = FALSE], 2, quantile, c(.025, .5, .975), na.rm = TRUE)
-cat("\n=========== PROPAGATED MAYV RESULTS (", length(ok), " draws, R0 FIXED = ",
-    sprintf("%.2f", R0_VALUE), ") ===========\n", sep = "")
-cat("Bands below carry gamma / sigma / rho / prop_symp / prior-immunity uncertainty ONLY.\n")
+cat("\n=========== PROPAGATED MAYV RESULTS (", length(ok), " draws, R0 SAMPLED ",
+    sprintf("%.1f-%.1f", R0_LO, R0_HI), ") ===========\n", sep = "")
+cat("Bands below carry gamma / sigma / rho / prop_symp / prior-immunity AND R0 uncertainty.\n")
 cat(sprintf("Prior immunity:      propagated %.1f%% [%.1f%%, %.1f%%]\n",
             q3(immune[ok])[1], q3(immune[ok])[2], q3(immune[ok])[3]))
-cat(sprintf("R0 at seasonal peak: FIXED %.2f (no band by construction)\n", R0_VALUE*max(season)))
+cat(sprintf("R0 at seasonal peak: SAMPLED %.2f [%.2f, %.2f] (lognormal on the %s range)\n",
+            median(R0v[ok]), quantile(R0v[ok],.025), quantile(R0v[ok],.975), R0_SCENARIO))
 cat(sprintf("Attack rate (of susceptibles): baseline %.2f%% -> propagated %.2f%% [%.2f%%, %.2f%%]\n",
             base$attack, q3(attack[ok])[1], q3(attack[ok])[2], q3(attack[ok])[3]))
 cat(sprintf("Total infections:  baseline %.0f -> propagated %.0f [%.0f, %.0f]\n",
@@ -358,7 +391,7 @@ p_rep <- ggplot(data.frame(week = weeks, lo = rb[1,], med = rb[2,], hi = rb[3,],
   scale_x_continuous(breaks = x_ticks$week_index, labels = x_ticks$week) +
   labs(x = "Week", y = "Predicted reported MAYV cases",
        title = "Hypothetical MAYV outbreak: propagated 95% band",
-       subtitle = sprintf("Median (solid) + 95%% band from gamma/sigma/rho/prop_symp/immunity priors at FIXED R0 = %.2f; baseline at median inputs (dashed)", R0_VALUE)) +
+       subtitle = sprintf("Median (solid) + 95%% band from gamma/sigma/rho/prop_symp/immunity/R0 priors (R0 ~ %.1f-%.1f); baseline at median inputs (dashed)", R0_LO, R0_HI)) +
   theme_bw(12) + theme(plot.title = element_text(face = "bold", hjust = 0.5),
                        plot.subtitle = element_text(hjust = 0.5, size = 9),
                        panel.grid.minor = element_blank())
@@ -391,8 +424,13 @@ mayv_lhs_ensemble <- list(
   R0 = R0v[ok], gamma = gam[ok], sigma = sig[ok], rho = rho[ok], prop_symp = psy[ok],
   immune_frac = imm[ok],                          # per-draw FLAT immune fraction (Rimm = rep(imm, A))
   base_R0 = R0_median, R0_scenario = R0_SCENARIO, r0_is_peak = r0_is_peak,
-  R0_fixed = R0_VALUE, R0_sampled = FALSE,        # R0 is scenario-defining, not an LHS dimension
-  base_gamma = g_m, base_sigma = 1/p_m, base_prop_symp = 0.5242478,
+  # R0 is now SAMPLED. R0_fixed is kept (= the scenario median) so downstream labels and
+  # the OWSA base case keep working; R0_sampled/R0_lo/R0_hi describe the actual prior.
+  R0_fixed = R0_median, R0_sampled = TRUE, R0_lo = R0_LO, R0_hi = R0_HI,
+  R0_meanlog = R0_meanlog, R0_sdlog = R0_sdlog,
+  lat_meanlog = lat_ml, lat_sdlog = lat_sl, MAYV_LATENT = MAYV_LATENT,
+  ps_meanlog = ps_ml, ps_sdlog = ps_sl,
+  base_gamma = g_m, base_sigma = 1/p_m, base_prop_symp = PSYMP_MED,
   base_immune = imm_base,
   season = season, N = N, A = A, age_df = age_df,
   I0_total = I0_total, E0 = E0, seed_week = seed_week,

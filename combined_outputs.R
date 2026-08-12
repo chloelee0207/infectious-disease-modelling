@@ -33,7 +33,7 @@ suppressMessages({library(dplyr); library(ggplot2); library(patchwork); library(
 
 # Which MAYV scenario to show. Reads the scenario-TAGGED results file so the figures
 # never depend on which scenario happened to run last.
-if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" R0 2.04 | "low" R0 1.20
+if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" R0 2.1-2.9 | "low" R0 1.1-1.3
 
 ARMS      <- c("Disease-blocking", "Disease + infection blocking")
 OUT_LV    <- c("Cumulative DALYs", "Cumulative deaths", "Healthcare cost")  # as stored in the .rds
@@ -86,7 +86,9 @@ mayv <- readRDS(need1("MAYV_ca_residual_burden.rds",  "run MAYV_ca_outputs.R"))
 stopifnot(!is.null(M$wk_base))                 # re-run MAYV_ca_engine.R to store curves
 
 T_sim <- G$T_sim
-mayv_lab <- sprintf("Mayaro (fixed R0 = %.2f)", M$R0_fixed)
+mayv_lab <- if (isTRUE(M$R0_sampled))
+  sprintf("Mayaro (R0 %.1f-%.1f)", M$R0_lo, M$R0_hi) else
+  sprintf("Mayaro (fixed R0 = %.2f)", M$R0_fixed)
 
 # ------------------------------------------------------------
 # 1. Epidemic curves.

@@ -6,7 +6,7 @@
 # No take-off conditioning: R0 is fixed, so there is no fizzle/take-off split.
 #
 # BASE CASE. Peak R0 is taken from the engine's fixed scenario value (M$R0_fixed --
-# low = 1.20 Caicedo outside-Amazon, high = 2.04 geometric mean of Dodero-Rojas).
+# = the MEDIAN of the sampled range; low = 1.1-1.3, high = 2.1-2.9, both Caicedo 2021).
 # R0 is NOT a tornado row: it is scenario-defining, not a single-setting uncertain
 # parameter, and outbreak size is a steep convex function of it, so one bar would swamp
 # every other parameter and would misrepresent between-setting heterogeneity as
@@ -43,7 +43,8 @@ if (!identical(E$R0_scenario, M$R0_scenario))
        "'. Re-run MAYV_ca_lhs.R then MAYV_ca_engine.R for one scenario before this script.")
 
 # Natural-history constants (defined before BASE, which uses PSYMP)
-GAMMA <- E$base_gamma; SIGMA <- E$base_sigma; PSYMP <- 0.5242478
+GAMMA <- E$base_gamma; SIGMA <- E$base_sigma
+PSYMP <- E$base_prop_symp        # MAYV-specific median (~0.787), no longer the CHIKV 0.524
 EVAL_WIN <- 1:T_weeks
 
 # ------------------------------------------------------------
@@ -54,7 +55,7 @@ R0_BASE <- unname(M$R0_fixed)                      # the scenario's FIXED peak R
 stopifnot(is.finite(R0_BASE))
 # Dedicated R0 response curve (section 5b). Step 0.1 is deliberate: in the steep region a
 # 0.1 increment roughly doubles outbreak size, so a coarser grid would hide the threshold.
-R0_MARKS <- c(low = 1.20, high = 2.04)             # the two reported scenarios, for figures
+R0_MARKS <- c(low = 1.20, high = 2.47)             # scenario MEDIANS, for the figures
 # The scenario values are UNIONED into the grid: 2.04 is not on a 0.1 step, so without this
 # the r0_response table and the scenario markers on the figures would miss it entirely.
 # round() before unique(): seq() yields values like 1.2000000000000002, so a raw unique()
@@ -198,8 +199,8 @@ struct <- rbind(
   # Symptomatic fraction: CHIKV-equivalent (base) vs the MAYV-specific 90% reported in
   # the literature. Infections and attack rate are identical between the two -- only the
   # scale of symptomatic burden moves -- so the pair documents the multiplier explicitly.
-  do.call(rbind, lapply(list(c(PSYMP, "52.4% (CHIKV-equivalent, base case)"),
-                             c(0.90,  "90% (MAYV-specific literature)")), function(x)
+  do.call(rbind, lapply(list(c(PSYMP,     sprintf("%.1f%% (MAYV-specific, base case)", 100*PSYMP)),
+                             c(0.5242478, "52.4% (borrowed CHIKV, earlier assumption)")), function(x)
     srow("Symptomatic fraction (structure)", x[2],
          modifyList(BASE, list(psymp = as.numeric(x[1])))))),
   # Latent period: Caicedo's 3.0 d intrinsic incubation (base) vs the earlier 12 d value.

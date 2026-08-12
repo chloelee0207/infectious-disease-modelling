@@ -18,8 +18,8 @@
 #
 # MAYV-SPECIFIC FRAMING (differs from CHIKV, which is fitted to a real outbreak):
 #   * NO TAKE-OFF CONDITIONING. R0 is FIXED per scenario in MAYV_ca_lhs.R (low = 1.20,
-#     high = 2.04), so every draw is the same transmission regime and outbreak size is
-#     unimodal. Every figure is summarised over ALL draws (G$outbreak is now every row).
+#     high = 2.1-2.9), sampled per draw. Every figure is summarised over ALL draws
+#     (G$outbreak is every row); no take-off conditioning is applied.
 #     The 95% UIs carry natural-history / reporting / symptomatic-fraction / prior-immunity
 #     / vaccine / severity-DALY uncertainty, NOT the between-setting R0 span.
 #   * ONE vaccine scenario: pre-outbreak, DISEASE-BLOCKING ONLY (VE_inf = 0), so
@@ -123,7 +123,7 @@ notes <- data.frame(
             "Hybrid: Caldas CHIKV beta_t for the rise/peak + CHIRPS climatological dry-season tail (2026-W10 join), mean-1.",
             sprintf("2025-W24 -> 2026-W22 (weeks %d-%d).", min(G$EVAL_WIN), max(G$EVAL_WIN)),
             "R0 = wet-season PEAK R_eff (envelope rescaled so max = 1).",
-            sprintf("'%s': R0 FIXED at %.2f, not sampled. Published MAYV R0 figures are point estimates from different settings/decades (Caicedo 2021: 1.1-1.3 outside Amazon, 2.1-2.9 Amazon; Dodero-Rojas 2020 limits 1.18-3.51), i.e. between-setting heterogeneity rather than uncertainty about one municipality. R0 is varied ACROSS scenarios instead.", G$R0_scenario, G$R0_fixed),
+            sprintf("'%s': R0 SAMPLED from %.1f-%.1f (lognormal, endpoints as 2.5th/97.5th percentiles; median %.2f). Both scenario ranges are Caicedo et al. 2021 -- low = outside the Amazon basin, high = Amazon basin applied to Goias as a PEAK R0 -- so this is within-source uncertainty, not a mix across settings.", G$R0_scenario, G$R0_lo, G$R0_hi, G$R0_fixed),
             sprintf("%.1f%% of %d draws exceed attack > %.1f%% of susceptibles. DIAGNOSTIC ONLY -- not used to filter: at fixed R0 the outbreak-size distribution is unimodal, so this threshold would bisect a single continuous distribution.",
                     100*G$frac_over_legacy_thresh, G$N_DRAWS, G$OUTBREAK_ATTACK_THRESH),
             sprintf("NONE. All %d draws are summarised (fixed R0 -> one transmission regime).", length(ok)),
@@ -135,7 +135,7 @@ notes <- data.frame(
             "BORROWED CHIKV (Hyolim Table S4) -- CHIKV-equivalent UPPER bound, not measured MAYV.",
             "Per-draw (Beta, median ~0.25).",
             "REPORTED = rho x TRUE per draw. Severe outcomes (hosp) are usually better ascertained, so their REPORTED values are conservative lower bounds.",
-            "Latin-hypercube over gamma/sigma/rho/prop_symp/prior-immunity + vaccine + severity/DALY, propagated jointly. R0 is FIXED (scenario-defining), so its between-setting span is NOT inside these UIs. Prior immunity dominates the spread (r ~ -0.86 with log symptomatic)."),
+            "Latin-hypercube over gamma/sigma/rho/prop_symp/prior-immunity/R0 + vaccine + severity/DALY, propagated jointly. R0 IS sampled within the scenario range, so its span IS inside these UIs and dominates them -- outbreak size is a steep convex function of R0, so the intervals are wide and right-skewed. Read the deciles, not just the median."),
   stringsAsFactors = FALSE)
 
 # doses actually delivered to the eligible 18-59, and dose wastage. Delivered PRE-

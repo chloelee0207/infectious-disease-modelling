@@ -7,17 +7,17 @@
 # at a FIXED wet-season-PEAK R0, flat Lima-2021 immunity), and layers vaccine + severity
 # + DALY draws on top.
 #
-# KEY MAYV FRAMING -- FIXED R0 PER SCENARIO, NO TAKE-OFF CONDITIONING. R0 is set by the
-# scenario in MAYV_ca_lhs.R (low = 1.20 Caicedo outside-Amazon; high = 2.04 geometric mean of
-# Aedes transmission) rather than sampled, because the published MAYV R0 figures are point
-# estimates from DIFFERENT settings and decades -- between-setting heterogeneity, not
-# uncertainty about one municipality. With R0 fixed, every draw is the same transmission
-# regime, outbreak size is UNIMODAL, and the burden/DALY/NNV distributions are reported over
-# ALL draws. The 95% UIs therefore carry natural-history, reporting, symptomatic-fraction,
-# prior-immunity, vaccine and severity/DALY/cost uncertainty -- all genuine single-setting
-# quantities -- and NOT the R0 span, which is varied ACROSS scenarios instead.
-# (The old sampled-R0 design needed a take-off filter because draws straddled the epidemic
-# threshold and the output was bimodal; that filter is now retained as a diagnostic only.)
+# KEY MAYV FRAMING -- R0 SAMPLED WITHIN A SCENARIO RANGE, NO TAKE-OFF CONDITIONING.
+# R0 is drawn per LHS row from a lognormal on the scenario's range (MAYV_ca_lhs.R:
+# low = Caicedo 1.1-1.3 outside the Amazon; high = Caicedo 2.1-2.9 Amazon basin, applied to
+# Goias as a PEAK R0). Both ranges are from the same source and the same quantity, so this
+# is within-source uncertainty rather than a mix across settings.
+# Burden/DALY/NNV are reported over ALL draws -- no take-off filter. The legacy 1% attack
+# threshold is retained as a DIAGNOSTIC only.
+#   CAVEAT: outbreak size is a steep convex function of R0, so a range as wide as 2.1-2.9
+#   spans several orders of magnitude and the resulting distribution is heavily skewed and
+#   can be effectively two-regime. Read the per-draw deciles printed below, not just the
+#   median, and see the r0_response table in MAYV_ca_owsa.xlsx for the underlying curve.
 #
 # BORROWED severity/DALY (no MAYV-specific data): CHIKV disease-progression params via
 # load_burden_params()/load_daly_params() in ca_common.R -- a CHIKV-equivalent UPPER
@@ -251,8 +251,8 @@ wk_base <- wk_vacc <- matrix(NA_real_, N_DRAWS, T_weeks)   # weekly symptomatic 
 # to already-immune eligible people (they cannot benefit) = 1 - on-target/administered.
 doses_deliv <- doses_ontarget <- numeric(N_DRAWS)
 
-cat(sprintf("Running %d draws (baseline + pre-outbreak disease-blocking) at FIXED R0 = %.2f, no conditioning...\n",
-            N_DRAWS, E$R0_fixed))
+cat(sprintf("Running %d draws (baseline + pre-outbreak disease-blocking), R0 ~ %.1f-%.1f...\n",
+            N_DRAWS, E$R0_lo, E$R0_hi))
 for (i in 1:N_DRAWS) {
   R0i<-E$R0[i]; gi<-E$gamma[i]; si<-E$sigma[i]; ri<-E$rho[i]; psi<-E$prop_symp[i]; immi<-E$immune_frac[i]
   Rimm <- rep(immi, A); sus <- N*(1-Rimm); I0i <- I0_total * sus/sum(sus)
@@ -297,12 +297,17 @@ outbreak   <- seq_len(N_DRAWS)
 p_outbreak <- 1
 # Diagnostic only: what share of draws would have passed the old take-off filter.
 frac_over_thresh <- mean(attack_base > OUTBREAK_ATTACK_THRESH)
-cat(sprintf("\nR0 FIXED at %.2f (%s scenario) -> reporting over ALL %d draws, no take-off conditioning.\n",
-            E$R0_fixed, E$R0_scenario, N_DRAWS))
+cat(sprintf("\nR0 SAMPLED %.1f-%.1f (%s scenario, median %.2f) -> reporting over ALL %d draws, no conditioning.\n",
+            E$R0_lo, E$R0_hi, E$R0_scenario, E$R0_fixed, N_DRAWS))
 cat(sprintf("  Diagnostic: %.1f%% of draws exceed the legacy %.1f%% attack-rate filter (NOT used to condition).\n",
             100*frac_over_thresh, OUTBREAK_ATTACK_THRESH))
 cat(sprintf("  Baseline attack rate: median %.3f%% [%.3f%%, %.3f%%]\n",
             median(attack_base), quantile(attack_base, .025), quantile(attack_base, .975)))
+# With R0 sampled, print the DECILES: a wide R0 range makes the outbreak-size distribution
+# heavily skewed, and the median alone can sit between two regimes rather than describing one.
+cat("  Baseline symptomatic deciles: ",
+    paste(round(quantile(per_draw[["No vaccine (baseline)"]][, "symptomatic"], seq(0, 1, .1))),
+          collapse = " | "), "\n")
 
 base_pd <- per_draw[["No vaccine (baseline)"]]
 vac_pd  <- per_draw[[vac_name]]
@@ -392,7 +397,8 @@ base_curve_plot(wk_base, draw_set, "Predicted symptomatic cases (no vaccine)",
 saveRDS(list(
   per_draw = per_draw, averted = averted, nnv = nnv,
   attack_base = attack_base, outbreak = outbreak, p_outbreak = p_outbreak,
-  R0_fixed = E$R0_fixed, R0_sampled = FALSE, conditioning = "none (fixed R0; all draws)",
+  R0_fixed = E$R0_fixed, R0_sampled = TRUE, R0_lo = E$R0_lo, R0_hi = E$R0_hi,
+  conditioning = "none (all draws; R0 sampled within the scenario range)",
   frac_over_legacy_thresh = frac_over_thresh,
   OUTBREAK_ATTACK_THRESH = OUTBREAK_ATTACK_THRESH,
   rho_draw = E$rho,

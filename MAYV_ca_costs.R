@@ -28,9 +28,10 @@
 # disjoint exit funnel. A patient who becomes chronic also consumed acute and
 # sub-acute care, so they pay at every phase they passed through.
 #
-# CONDITIONING: none. R0 is FIXED per scenario in MAYV_ca_lhs.R (low = 1.20, high = 2.04),
-# so every draw is the same transmission regime and outbreak size is unimodal. Every summary
-# here is over ALL draws (G$outbreak is now every row), matching the engine.
+# CONDITIONING: none. R0 is SAMPLED per draw within the scenario range (MAYV_ca_lhs.R:
+# low = 1.1-1.3, high = 2.1-2.9). Every summary here is over ALL draws (G$outbreak is every
+# row), matching the engine. The intervals are wide and right-skewed because outbreak size
+# is a steep convex function of R0.
 #
 # DEATHS: MAYV has no confirmed attributable death, so the engine sets CFR = 0. This
 # layer is DIRECT MEDICAL cost only and never costed deaths anyway, so nothing changes.

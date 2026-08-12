@@ -7,7 +7,7 @@
 # comparable with the headline table.
 #
 # The vaccine draws are read from MAYV_ca_engine_results_high.rds rather than redrawn, so
-# the R0 = 2.04 / seed-week-1 cell reproduces the headline result exactly.
+# the R0 = 2.47 / seed-week-1 cell reproduces the headline result exactly.
 #
 #   1. TRANSMISSION POTENTIAL. Baseline and averted symptomatic cases across fixed R0,
 #      reported alongside the reproduction numbers the model actually runs at. R0 here
@@ -78,10 +78,10 @@ sweep_cfg <- function(R0, seed_week) {
 # ---- 1. transmission potential ----------------------------------------------
 # The scenario's peak R0 (must match R0_FIXED['high'] in MAYV_ca_lhs.R). Used for the
 # seed-week sweep and the envelope table so they stay in step with the headline results.
-R0_MAIN  <- 2.04
-R0_GRID  <- c(1.2, 1.8, 2.04, 2.3, 2.5)
-R0_LABEL <- c("1.2 (incidental transmission scenario)", "1.8",
-              "2.04 (future urban-adapted transmission scenario)", "2.3", "2.5")
+R0_MAIN  <- 2.47   # median of the sampled high range (2.1-2.9)
+R0_GRID  <- c(1.2, 2.1, 2.47, 2.9, 3.2)
+R0_LABEL <- c("1.2 (incidental transmission scenario)", "2.1 (lower bound, Amazon basin)",
+              "2.47 (median of the sampled 2.1-2.9 range)", "2.9 (upper bound, Amazon basin)", "3.2")
 # R0 is fixed, but R_eff = R0 x season(t) x S/N inherits the sampled prior immunity, so
 # it DOES carry a 95% UI. Reported at the start of the epidemic; depletion lowers it
 # further as the outbreak runs, though at MAYV's attack rates that shift is negligible.
@@ -132,7 +132,7 @@ notes <- data.frame(item = c(
   "Held at ONE infectious person in every row. Larger seeds were used only as a regime diagnostic and are not a plausible base case.",
   "Averted symptomatic cases per 100,000 doses administered. Ixchiq is deployed once, so the CHIKV and MAYV models consume the same doses (19,584 vs 19,589 median); normalising by doses therefore puts the two pathogens in a shared unit with a natural zero, without dividing one model by the other. Doses do not vary with R0 or seeding week -- the campaign is fixed -- so this column is proportional to averted cases within each table.",
   "Absolute burden is highly sensitive to seeding week; % averted is nearly invariant, because the vaccine's effect depends on the timing overlap between the epidemic and the coverage curve, and the seasonal envelope pins the peak regardless of seeding.",
-  sprintf("%d. Transmission draws (gamma, sigma, rho, prop_symp, prior immunity) come from the ensemble and vaccine draws from the engine, so the R0 = 2.04 / seed-week-1 cell reproduces the headline result exactly.", ND),
+  sprintf("%d. Transmission draws (gamma, sigma, rho, prop_symp, prior immunity) come from the ensemble and vaccine draws from the engine, so the R0 = 2.47 / seed-week-1 cell reproduces the headline result exactly.", ND),
   "Pre-outbreak campaign at 2025-W40, coverage of eligible 18-59 Beta(30%, 20-40%), disease-blocking efficacy Beta(4,8) from Kostecki et al. 2026 (4 of 12 patients; mean 33.3%, 95% UI 10.9-61.0%), VE_inf = 0."),
   stringsAsFactors = FALSE)
 
