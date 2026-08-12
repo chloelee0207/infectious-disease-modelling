@@ -42,7 +42,14 @@ mc_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
   data.frame(timing = sub(" \\|.*","",nm), arm = sub(".*\\| ","",nm),
              Infections = fmtq(m[,"infections"]), Symptomatic = fmtq(m[,"symptomatic"]),
              Hospitalisations = fmtq(m[,"hospitalisations"],1), Deaths = fmtq(m[,"deaths"],2),
-             pct_symp = sprintf("%.1f%%", 100*median(m[,"symptomatic"]/base_true[,"symptomatic"], na.rm=TRUE)),
+             # % of baseline symptomatic cases averted, median (95% UI), computed per
+             # draw. Precision adapts because the timings span three orders of magnitude:
+             # a fixed 1 dp renders the post-peak rollout as "0.1%" with no interval,
+             # which cannot support the figure being quoted in the text.
+             pct_symp = { r <- 100*m[,"symptomatic"]/base_true[,"symptomatic"]
+                          q <- quantile(r, c(.5,.025,.975), na.rm = TRUE)
+                          d <- if (q[1] < 1) 3 else 1
+                          sprintf("%.*f%% (%.*f-%.*f%%)", d, q[1], d, q[2], d, q[3]) },
              row.names = NULL)
 }))
 
