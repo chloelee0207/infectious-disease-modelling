@@ -115,6 +115,25 @@ EVAL_WIN <- 1:T_weeks   # 52-week hybrid window (2025-W24 -> 2026-W22); the dry-
 # 1. Severity + DALY params (borrowed CHIKV) + eligibility + uniform age weight
 # ------------------------------------------------------------
 invisible(list2env(load_burden_params(A), globalenv()))   # ps_*, hosp_*, cfr_*, age_to_band, cfr_vec
+
+# MAYV-SPECIFIC HOSPITALISATION RATE. load_burden_params() returns the CHIKV severity set,
+# whose hospitalisation row is 4% (3-6%). MAYV uses 5% (4-6%) instead. The override is
+# applied HERE rather than by editing the shared row, because CHIKV_ca_engine.R reads the
+# same workbook through the same function -- changing that row in place would silently move
+# the CHIKV results too. The MAYV value lives in its own row, keyed by a distinct Parameter
+# name, and load_burden_params() matches names EXACTLY, so CHIKV never sees it.
+# (Same pattern as MAYV_ZERO_DEATHS below, which zeroes the borrowed CFRs.)
+{
+  .dp <- as.data.frame(readxl::read_excel("disease_progression.xlsx",
+                                          sheet = "disease_progression"))
+  .r  <- .dp[.dp[[1]] == "Probability of hospitalisation among symptomatic cases (MAYV)", ]
+  if (nrow(.r) != 1)
+    stop("disease_progression.xlsx: expected exactly one MAYV hospitalisation row, found ", nrow(.r))
+  hosp_a    <<- as.numeric(.r[[8]]); hosp_b <<- as.numeric(.r[[10]])
+  hosp_rate <<- hosp_a / (hosp_a + hosp_b)
+  cat(sprintf("MAYV hospitalisation override: Beta(%.3f, %.3f) -> mean %.4f (95%% UI %.4f-%.4f)\n",
+              hosp_a, hosp_b, hosp_rate, qbeta(.025, hosp_a, hosp_b), qbeta(.975, hosp_a, hosp_b)))
+}
 dp <- load_daly_params()
 age_weight <- rep(1, A)                                    # uniform: no observed MAYV age split
 young_idx  <- which(age_to_band <= 4); old_idx <- which(age_to_band >= 5)

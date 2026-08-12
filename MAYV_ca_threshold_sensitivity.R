@@ -75,34 +75,65 @@ sweep_cfg <- function(R0, seed_week) {
        per100k = 1e5 * av / m["doses", ])
 }
 
-# ---- 1. transmission potential ----------------------------------------------
-# The scenario's peak R0 (must match R0_FIXED['high'] in MAYV_ca_lhs.R). Used for the
-# seed-week sweep and the envelope table so they stay in step with the headline results.
-R0_MAIN  <- 2.47   # median of the sampled high range (2.1-2.9)
-R0_GRID  <- c(1.2, 2.1, 2.47, 2.9, 3.2)
-R0_LABEL <- c("1.2 (incidental transmission scenario)", "2.1 (lower bound, Amazon basin)",
-              "2.47 (median of the sampled 2.1-2.9 range)", "2.9 (upper bound, Amazon basin)", "3.2")
-# R0 is fixed, but R_eff = R0 x season(t) x S/N inherits the sampled prior immunity, so
-# it DOES carry a 95% UI. Reported at the start of the epidemic; depletion lowers it
-# further as the outbreak runs, though at MAYV's attack rates that shift is negligible.
+# ---- 1. transmission potential: the two SAMPLED scenarios --------------------
+# R0 is no longer fixed at grid points -- it is drawn per LHS row from a lognormal on the
+# scenario's range (MAYV_ca_lhs.R). So this sheet now reports ONE ROW PER SCENARIO, with
+# every quantity summarised over the 1000 draws. R_eff = R0(draw) x season(t) x S/N now
+# carries uncertainty from BOTH the sampled R0 and the sampled prior immunity, where the
+# old fixed-R0 rows carried immunity alone.
+# Evaluated at the START of the epidemic; susceptible depletion lowers R_eff further as the
+# outbreak runs, though negligibly at MAYV attack rates.
+R0_MAIN <- 2.47                      # median of the sampled high range, used by sections 2-3
+SCEN <- list(low  = "1.1-1.3 (incidental transmission, outside Amazon basin)",
+             high = "2.1-2.9 (urban transmission, Amazon-basin intensity)")
+
+# Self-contained per-scenario run: reads that scenario's OWN tagged ensemble and engine
+# draws, so the two rows are each internally consistent. (one()/sweep_cfg() above close over
+# the high-scenario globals and are left alone for the seeding-week sheet.)
+scen_sampled <- function(sc) {
+  Es <- readRDS(sprintf("MAYV_ca_lhs_ensemble_%s.rds", sc))
+  Ms <- readRDS(sprintf("MAYV_ca_engine_results_%s.rds", sc))
+  stopifnot(identical(Es$R0_scenario, Ms$R0_scenario), isTRUE(Es$R0_sampled))
+  nd <- length(Es$gamma)
+  cv <- as.numeric(Ms$cov_d); ve <- as.numeric(Ms$veb_d)
+  dl <- as.numeric(Ms$del_d); dy <- as.numeric(Ms$delay_d)
+  base <- av <- dose <- numeric(nd)
+  mR <- pR <- wk <- numeric(nd)
+  for (i in seq_len(nd)) {
+    imm <- Es$immune_frac[i]; SNi <- 1 - imm
+    R0i <- Es$R0[i]
+    mR[i] <- R0i * mean(season) * SNi           # mean R_eff over the 52 weeks
+    pR[i] <- R0i * max(season)  * SNi           # peak R_eff (season is peak-normalised)
+    wk[i] <- sum(R0i * season * SNi > 1)        # weeks with R_eff > 1
+    Rimm <- rep(imm, A); sus <- N * (1 - imm)
+    sim <- function(cov, vb) seirv_vaccinated_MAYV(
+      T_weeks, A, N, Rimm, Es$I0_total * sus/sum(sus), R0i * Es$gamma[i] * season,
+      Es$sigma[i], Es$gamma[i], Es$rho[i], target_age, cov, dl[i],
+      start_pre + dy[i], VE_inf = 0, VE_block = vb, immun_delay = immun_delay,
+      prop_symp = Es$prop_symp[i], E0 = Es$E0, seed_week = Es$seed_week)
+    r <- sim(cv[i], ve[i]); ni <- r$new_infections; psi <- Es$prop_symp[i]
+    base[i] <- sum(colSums(psi * ni))
+    av[i]   <- base[i] - sum(colSums(psi * ni * (1 - ve[i] * r$coverage_frac)))
+    dose[i] <- Ms$target_pop_elig * cv[i]
+  }
+  cat(sprintf("  %s scenario done\n", sc))
+  data.frame(scenario = SCEN[[sc]],
+             sampled_R0 = reff(Es$R0),
+             mean_R_eff = reff(mR),
+             peak_R_eff = reff(pR),
+             weeks_R_eff_above_1 = sprintf("%d (%d-%d)", median(wk),
+                                           quantile(wk, .025), quantile(wk, .975)),
+             baseline_symptomatic = fmt(base),
+             averted_symptomatic  = fmt(av),
+             averted_per_100k_doses = fmt(1e5 * av / dose),
+             pct_averted = fmt(100 * av / base, 1),
+             stringsAsFactors = FALSE)
+}
 SN_d <- 1 - E$immune_frac; imm_med <- median(E$immune_frac); SN <- median(SN_d)
 reff <- function(x, d = 3) sprintf("%.*f (%.*f-%.*f)", d, median(x), d,
                                    quantile(x, .025), d, quantile(x, .975))
-cat(sprintf("Propagating %d draws over %d R0 values...\n", ND, length(R0_GRID)))
-tp <- do.call(rbind, lapply(seq_along(R0_GRID), function(k) {
-  R0 <- R0_GRID[k]; r <- sweep_cfg(R0, E$seed_week)
-  cat(sprintf("  R0 = %.1f done\n", R0))
-  data.frame(fixed_R0 = R0_LABEL[k],
-             mean_R_eff = reff(R0 * mean(season) * SN_d),
-             peak_R_eff = reff(R0 * max(season)  * SN_d),
-             weeks_R_eff_above_1 = { w <- sapply(SN_d, function(z) sum(R0 * season * z > 1))
-                                     sprintf("%d (%d-%d)", median(w), quantile(w, .025),
-                                             quantile(w, .975)) },
-             baseline_symptomatic = fmt(r$base),
-             averted_symptomatic  = fmt(r$averted),
-             averted_per_100k_doses = fmt(r$per100k),
-             pct_averted          = fmt(r$pct, 1),
-             stringsAsFactors = FALSE) }))
+cat(sprintf("Propagating %d draws over the two sampled scenarios...\n", ND))
+tp <- do.call(rbind, lapply(names(SCEN), scen_sampled))
 
 # ---- 2. seeding week --------------------------------------------------------
 SEED_GRID <- c(1, 9, 17, 25)
@@ -127,8 +158,8 @@ notes <- data.frame(item = c(
   "R0 is the WET-SEASON PEAK: the seasonal envelope is normalised to a peak of 1, so R0(t) = R0 x season(t) <= R0 at all times.",
   "Mean R0(t) is mean R_eff without the susceptible factor. R_eff is what determines whether transmission grows, so only R_eff is tabulated.",
   sprintf("R_eff = R0 x season(t) x S/N, evaluated at the START of the epidemic. Prior immunity is %.1f%% (95%% UI 3.0-18.0%%), so S/N = %.3f (0.820-0.970). Depletion lowers R_eff further as the epidemic runs, though negligibly at MAYV attack rates.", 100*imm_med, SN),
-  "R0 is fixed per scenario and has no interval by construction, but R_eff does: its 95% UI comes entirely from the sampled prior immunity, the only stochastic term in R0 x season(t) x S/N.",
-  sprintf("Caicedo et al. 2021 derive R0 from age-stratified seroprevalence using catalytic models (P(a) = 1-exp(-lambda*a)), so their 2.1-2.9 for the Amazon is an ENDEMIC-AVERAGE reproduction number, not a seasonal peak. We therefore do NOT import one of its bounds as a peak. The high scenario instead uses 2.04, the geometric mean of Dodero-Rojas et al. 2020's [1.18, 3.51] -- the only MAYV-specific R0 range published -- read as a PEAK: it implies a season-averaged R0 of %.2f, and reproducing 2.04 as an annual mean would need a peak of %.2f. The peak is instead comparable to their outbreak-derived estimate, 2.2 (95%% CrI 0.8-4.8) from the 1954-55 Santa Cruz epidemic.", R0_MAIN*mean(season), R0_MAIN/mean(season)),
+  "R0 is SAMPLED within each scenario range, so R_eff = R0 x season(t) x S/N carries uncertainty from both the sampled R0 and the sampled prior immunity. The earlier fixed-R0 rows carried immunity alone.",
+  sprintf("Caicedo et al. 2021 derive R0 from age-stratified seroprevalence using catalytic models (P(a) = 1-exp(-lambda*a)), so their 2.1-2.9 for the Amazon is an ENDEMIC-AVERAGE reproduction number, not a seasonal peak. Applying that range to Goias as a seasonal PEAK is therefore a deliberate and conservative reading: at the range median it implies a season-averaged R0 of only %.2f, and reproducing 2.47 as an annual mean would instead need a peak of %.2f. The peak is instead comparable to their outbreak-derived estimate, 2.2 (95%% CrI 0.8-4.8) from the 1954-55 Santa Cruz epidemic.", R0_MAIN*mean(season), R0_MAIN/mean(season)),
   "Held at ONE infectious person in every row. Larger seeds were used only as a regime diagnostic and are not a plausible base case.",
   "Averted symptomatic cases per 100,000 doses administered. Ixchiq is deployed once, so the CHIKV and MAYV models consume the same doses (19,584 vs 19,589 median); normalising by doses therefore puts the two pathogens in a shared unit with a natural zero, without dividing one model by the other. Doses do not vary with R0 or seeding week -- the campaign is fixed -- so this column is proportional to averted cases within each table.",
   "Absolute burden is highly sensitive to seeding week; % averted is nearly invariant, because the vaccine's effect depends on the timing overlap between the epidemic and the coverage curve, and the seasonal envelope pins the peak regardless of seeding.",
@@ -178,5 +209,5 @@ write_xlsx(list(transmission_potential = tp, seeding_week = sd,
                 envelope = env, envelope_summary = env_summary, notes = notes),
            "MAYV_ca_threshold_sensitivity.xlsx")
 cat("\nWrote MAYV_ca_threshold_sensitivity.xlsx\n")
-print(tp[, c("fixed_R0","mean_R_eff","peak_R_eff","weeks_R_eff_above_1","baseline_symptomatic","averted_symptomatic")], row.names = FALSE)
+print(tp[, c("scenario","sampled_R0","mean_R_eff","peak_R_eff","weeks_R_eff_above_1","baseline_symptomatic","averted_symptomatic")], row.names = FALSE)
 cat("\n"); print(sd[, c("seed_week","R_eff_at_seeding","baseline_symptomatic","averted_symptomatic","pct_averted")], row.names = FALSE)

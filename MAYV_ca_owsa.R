@@ -67,11 +67,20 @@ BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 4/12,
              psymp = PSYMP,                        # CHIKV-equivalent symptomatic fraction
              latent = 1/SIGMA)                     # latent period, weeks (Caicedo 3.0 d)
 
-# TWO inputs are deliberately NOT tornado rows, because neither is a parameter with an
-# ordered uncertainty range; both are structural choices reported in the
+# R0 IS a tornado row (added 2026-08). It was excluded while R0 was FIXED per scenario --
+# a scenario-defining choice is not a within-setting uncertain parameter. Now that R0 is
+# SAMPLED per draw from a lognormal on the scenario range, it is exactly that, and it is
+# propagated into every reported interval; leaving it out would make the tornado understate
+# what drives the result. Its bounds are the sampled 95% UI, matching how imm and ve are
+# keyed, so the bars are comparable. It also no longer swamps the figure: at the current
+# base case its swing is ~1.4x the next bar, not the ~100x seen at the old fixed R0 = 2.04,
+# because that base sat on the flat part of the convex R0-burden curve.
+# The response curve in section 4b is KEPT as well: the bar gives the swing across the
+# range, the curve shows the relationship is steeply convex, which a bar cannot convey.
+#
+# The following are deliberately NOT tornado rows, because none is a parameter with an
+# ordered uncertainty range; each is a structural choice reported in the
 # structural_sensitivity sheet instead:
-#   R0       -- defines the SCENARIO (whether an outbreak occurs and how large). It is
-#               swept as a response curve in section 5b instead of getting a tornado bar.
 #   envelope -- a model-structure choice between the pure CHIKV beta shape, the pure
 #               rainfall shape and the hybrid. "Lower" and "upper" are meaningless for
 #               a categorical choice, and the rainfall arm additionally peaks before the
@@ -91,6 +100,7 @@ BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 4/12,
 # immunity and the seed; rho is applied afterwards only to convert TRUE cases into
 # REPORTED ones. It therefore has exactly zero effect on true cases averted.
 BOUNDS <- list(
+  R0    = unname(c(E$R0_lo, E$R0_hi)),                 # the scenario's SAMPLED range
   imm   = c(0.03, 0.18),                               # Lima 2021 Central-West 95% CI
   ve    = c(0.109, 0.610),                             # Kostecki 2026, Beta(4,8) 95% UI
   cov   = c(0.20, 0.40),
@@ -98,7 +108,7 @@ BOUNDS <- list(
   delay = c(1, 3),
   immun = c(1, 3))
 
-PAR_LAB <- c(R0 = "Peak R0", imm = "Rate of exposure",
+PAR_LAB <- c(R0 = "R0", imm = "Rate of exposure",
              rho = "Reporting rate", ve = "Vaccine efficacy",
              cov = "Vaccine coverage", deliv = "Weekly delivery speed",
              delay = "Delay in deployment", immun = "Time to immunity",
