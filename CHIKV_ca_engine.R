@@ -72,8 +72,25 @@ start_s1 <- idx_of(2026, 16)     # IXCHIQ real rollout
 start_s2 <- idx_of(2026, 1)      # start of 2026
 start_s3 <- idx_of(2025, 40)     # pre-outbreak
 start_s0 <- 1                    # earliest: rollout completes well before the outbreak
+
+# Reactive timings: campaign decided TWO WEEKS after the outbreak is recognised, with
+# recognition defined by the first week whose REPORTED count crosses a threshold. There is
+# no agreed onset definition for this outbreak, so two thresholds are carried rather than
+# one. Derived from the data, not hardcoded, so they follow the series if it is revised.
+onset_plus2 <- function(thr) {
+  i <- which(observed_cases >= thr)[1]
+  stopifnot(!is.na(i)); min(i + 2L, T_data)
+}
+start_o20 <- onset_plus2(20)     # onset = first week >= 20 cases (2025-W48) -> 2025-W50
+start_o46 <- onset_plus2(46)     # onset = first week >= 46 cases (2025-W49) -> 2025-W51
+
 timings <- list("earliest (2025-W24)" = start_s0, "actual rollout" = start_s1,
-                "start of 2026" = start_s2, "pre-outbreak" = start_s3)
+                "start of 2026" = start_s2, "pre-outbreak" = start_s3,
+                "onset 20 cases + 2 wk" = start_o20,
+                "onset 46 cases + 2 wk" = start_o46)
+cat(sprintf("Reactive timings: >=20 cases -> week %d (%d-W%02d); >=46 cases -> week %d (%d-W%02d)\n",
+            start_o20, caldas_obs$Year[start_o20], caldas_obs$week[start_o20],
+            start_o46, caldas_obs$Year[start_o46], caldas_obs$week[start_o46]))
 arm_names <- c("Disease-blocking", "Disease + infection blocking")
 
 # Burden accrues over the full observed window, 2025-W24 -> 2026-W22.
