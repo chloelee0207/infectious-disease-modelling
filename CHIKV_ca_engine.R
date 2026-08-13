@@ -231,6 +231,13 @@ cov_d   <- qbeta(nextU(), cov_ab["a"],   cov_ab["b"])
 # sampling it: an allocation that has been promised is a known quantity, not an uncertain
 # one. Every other input stays sampled, so the interval reflects epidemiological, severity
 # and DALY uncertainty at that fixed allocation rather than mixing in programme design.
+# CHIKV_FIXED_COV sets coverage of the eligible group directly; CHIKV_DOSES sets it via
+# an allocation. Either fixes it; neither is sampled.
+if (exists("CHIKV_FIXED_COV")) {
+  cov_d <- rep(CHIKV_FIXED_COV, N_DRAWS)
+  cat(sprintf("FIXED COVERAGE: %.2f%% of eligible 18-59 (= %s doses)\n",
+              100*CHIKV_FIXED_COV, format(round(CHIKV_FIXED_COV*target_pop_elig), big.mark = ",")))
+}
 if (exists("CHIKV_DOSES")) {
   cov_d <- rep(CHIKV_DOSES / target_pop_elig, N_DRAWS)
   cat(sprintf("DOSE-CONSTRAINED: %s doses = %.2f%% of eligible 18-59 (%.2f%% of the total population); coverage FIXED\n",
@@ -342,6 +349,16 @@ for (nm in grep("pre-outbreak", vac_names, value = TRUE)) {
 # ------------------------------------------------------------
 # 10. Save BOTH per-draw and aggregated (per user request)
 # ------------------------------------------------------------
+# Output path: tagged when the run fixes coverage, so a scenario run can never overwrite
+# the main results. Braces are needed -- a top-level if/else split across lines is a
+# parse error in R.
+RES_FILE <- {
+  if (exists("CHIKV_DOSES")) {
+    sprintf("CHIKV_ca_engine_results_doses%d.rds", CHIKV_DOSES)
+  } else if (exists("CHIKV_FIXED_COV")) {
+    sprintf("CHIKV_ca_engine_results_cov%03d.rds", round(1000*CHIKV_FIXED_COV))
+  } else "CHIKV_ca_engine_results.rds"
+}
 saveRDS(list(
   per_draw = per_draw, averted = averted, nnv = nnv,
   wk_symp = wk_symp, wk_inf = wk_inf, rho_i = rho_i,
@@ -354,6 +371,5 @@ saveRDS(list(
   doses_deliv = doses_deliv, doses_ontarget = doses_ontarget,
   cov_d = cov_d, ve_d = ve_d,
   burden_audit = burden_audit, burden_audit_by_age = burden_audit_by_age),
-  if (exists("CHIKV_DOSES")) sprintf("CHIKV_ca_engine_results_doses%d.rds", CHIKV_DOSES)
-  else "CHIKV_ca_engine_results.rds")
-cat("\nSaved CHIKV_ca_engine_results.rds (per-draw + aggregated; severity-phase counts included).\n")
+  RES_FILE)
+cat(sprintf("\nSaved %s (per-draw + aggregated; severity-phase counts included).\n", RES_FILE))
