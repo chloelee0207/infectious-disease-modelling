@@ -310,6 +310,8 @@ p_surface <- ggplot(surface, aes(100*coverage, week, fill = pct_averted)) +
         panel.grid = element_blank(), legend.position = "right")
 ggsave("CHIKV_ca_timing_coverage.png", p_surface, width = 11, height = 5.6, dpi = 150)
 ggsave("CHIKV_ca_timing_coverage.pdf", p_surface, width = 11, height = 5.6)
+# 600-dpi companion for the manuscript (same size/layout as the 150-dpi version).
+ggsave("CHIKV_ca_timing_coverage_600dpi.png", p_surface, width = 11, height = 5.6, dpi = 600)
 
 # ------------------------------------------------------------
 # 7. Export

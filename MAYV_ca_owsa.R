@@ -485,6 +485,9 @@ p_hm <- ggplot(grid_df, aes(factor(100*coverage), factor(100*ve), fill = pct)) +
                        plot.title = element_text(face = "bold", size = 11),
                        plot.subtitle = element_text(size = 8.5))
 ggsave("MAYV_ca_ve_coverage_heatmap.png", p_hm, width = 8.5, height = 6, dpi = 130)
+# 600-dpi companion for the manuscript. Same physical size and layout, so the two are
+# interchangeable in a document; only the pixel density differs.
+ggsave("MAYV_ca_ve_coverage_heatmap_600dpi.png", p_hm, width = 8.5, height = 6, dpi = 600)
 print(p_hm)
 
 write_xlsx(list(ve_coverage_grid = grid_df), "MAYV_ca_ve_coverage_sweep.xlsx")
