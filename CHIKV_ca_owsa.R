@@ -227,6 +227,7 @@ print(p_symp)
 idx_of <- function(y, w) caldas_obs$week_index[caldas_obs$Year == y & caldas_obs$week == w]
 WK_PRE <- start_pre                       # intended: pre-outbreak, 2025-W40
 WK_ACT <- idx_of(2026, 16)                # actual: announced 18 April 2026
+WK_PEAK <- idx_of(2025, 50)               # transmission peak of the fitted envelope
 
 sw_fit <- get_fit(BASE$foi, BASE$rho)     # cached; the tornado has already built it
 sw_Rimm  <- 1 - exp(-BASE$foi * exposure_age)
@@ -257,12 +258,19 @@ surface$epi_week <- sprintf("%d-W%02d", caldas_obs$Year[surface$week],
                             caldas_obs$week[surface$week])
 
 # fold loss between the intended and the actual campaign date, at each coverage level
+# Three campaign dates: the modelled pre-outbreak date, the transmission peak, and the
+# actual announcement. Fold losses are both measured against the pre-outbreak date, so
+# they read as "how much impact is given up by deciding this late".
 intended_vs_actual <- surface |>
-  filter(week %in% c(WK_PRE, WK_ACT)) |>
-  mutate(timing = ifelse(week == WK_PRE, "intended_pre_outbreak", "actual_2026W16")) |>
+  filter(week %in% c(WK_PRE, WK_PEAK, WK_ACT)) |>
+  mutate(timing = dplyr::case_when(week == WK_PRE  ~ "modelled_pre_outbreak_2025W40",
+                                   week == WK_PEAK ~ "peak_2025W50",
+                                   TRUE            ~ "actual_2026W16")) |>
   select(arm, coverage, timing, pct_averted) |>
   tidyr::pivot_wider(names_from = timing, values_from = pct_averted) |>
-  mutate(fold_loss = intended_pre_outbreak / actual_2026W16) |> as.data.frame()
+  mutate(fold_loss_peak   = modelled_pre_outbreak_2025W40 / peak_2025W50,
+         fold_loss_actual = modelled_pre_outbreak_2025W40 / actual_2026W16) |>
+  as.data.frame()
 
 
 # The surface itself is deterministic, so its cells carry no interval. The two marked
@@ -333,7 +341,7 @@ notes <- data.frame(item = c(
         "because the fit anchors on rho x prop_symp x infections = 8,204."),
   "FOI and rho change prior immunity / case scaling, so beta is re-fitted at each bound.",
   "Averted = baseline - scenario, both inside the window.",
-  sprintf("Campaign start week x coverage, %d x %d x 2 arms, deterministic at the central set. Intended pre-outbreak date 2025-W40 (week %d) vs actual announcement 18 April 2026 = 2026-W16 (week %d). See the surface and intended_vs_actual sheets.", T_weeks, length(SW_COVS), WK_PRE, WK_ACT),
+  sprintf("Campaign start week x coverage, %d x %d x 2 arms, deterministic at the central set. Three dates are tabulated: modelled pre-outbreak 2025-W40 (week %d), the transmission peak 2025-W50 (week %d), and the actual announcement 18 April 2026 = 2026-W16 (week %d). Both fold losses are measured against the pre-outbreak date. The propagated sheet covers only the pre-outbreak and actual dates, because those are the two campaign timings the engine simulates; 2025-W50 is deterministic only.", T_weeks, length(SW_COVS), WK_PRE, WK_PEAK, WK_ACT),
   "Coverage on the surface is of the ELIGIBLE 18-59 group (61.5% of the population), not of the whole population.",
   sprintf("The surface y-axis is the week the campaign is DECIDED; dosing begins %d weeks later (BASE$delay), as in run_scenario and the engine.", BASE$delay),
   "Surface cells are deterministic and carry NO interval. The two marked dates are engine scenarios, so their 95%% UIs are propagated over the 1000-draw ensemble -- see intended_vs_actual_propagated. Those medians differ slightly from the deterministic cells because the engine also samples coverage, efficacy and deployment delay.",
