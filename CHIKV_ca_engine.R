@@ -227,6 +227,16 @@ K <- 49
 U <- sapply(1:K, function(j) lhs_col(N_DRAWS)); col <- 0
 nextU <- function(w = 1) { idx <- (col + 1):(col + w); col <<- col + w; U[, idx, drop = FALSE] }
 cov_d   <- qbeta(nextU(), cov_ab["a"],   cov_ab["b"])
+# DOSE-CONSTRAINED run. Setting CHIKV_DOSES fixes coverage at doses/eligible instead of
+# sampling it: an allocation that has been promised is a known quantity, not an uncertain
+# one. Every other input stays sampled, so the interval reflects epidemiological, severity
+# and DALY uncertainty at that fixed allocation rather than mixing in programme design.
+if (exists("CHIKV_DOSES")) {
+  cov_d <- rep(CHIKV_DOSES / target_pop_elig, N_DRAWS)
+  cat(sprintf("DOSE-CONSTRAINED: %s doses = %.2f%% of eligible 18-59 (%.2f%% of the total population); coverage FIXED\n",
+              format(CHIKV_DOSES, big.mark = ","), 100*CHIKV_DOSES/target_pop_elig,
+              100*CHIKV_DOSES/sum(N)))
+}
 ve_d    <- qbeta(nextU(), ve_ab["a"],    ve_ab["b"])
 deliv_d <- qbeta(nextU(), deliv_ab["a"], deliv_ab["b"])
 delay_d <- 1 + round(2 * nextU())
@@ -344,5 +354,6 @@ saveRDS(list(
   doses_deliv = doses_deliv, doses_ontarget = doses_ontarget,
   cov_d = cov_d, ve_d = ve_d,
   burden_audit = burden_audit, burden_audit_by_age = burden_audit_by_age),
-  "CHIKV_ca_engine_results.rds")
+  if (exists("CHIKV_DOSES")) sprintf("CHIKV_ca_engine_results_doses%d.rds", CHIKV_DOSES)
+  else "CHIKV_ca_engine_results.rds")
 cat("\nSaved CHIKV_ca_engine_results.rds (per-draw + aggregated; severity-phase counts included).\n")
