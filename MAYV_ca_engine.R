@@ -220,7 +220,7 @@ del_ab <- beta_from_ci(0.10, 0.09, 0.11)     # weekly delivery speed
 
 lhs_col <- function(n) (sample.int(n) - runif(n)) / n
 # cols: cov, ve, deliv, delay, hosp, cfrH(9), cfrN(9), DW(3), dur(4), LE(9), recovery shares(10)
-K <- 49; U <- sapply(1:K, function(j) lhs_col(N_DRAWS)); col <- 0
+K <- 42; U <- sapply(1:K, function(j) lhs_col(N_DRAWS)); col <- 0   # 49 - 10 Beta shares + 3 Dirichlet
 nextU <- function(w = 1) { idx <- (col+1):(col+w); col <<- col + w; U[, idx, drop = FALSE] }
 cov_d  <- qbeta(nextU(), cov_ab["a"], cov_ab["b"])
 veb_d  <- qbeta(nextU(), veb_ab["a"], veb_ab["b"])
@@ -234,17 +234,40 @@ cfrH_d <- qbeta(nextU(9), matrix(cfr_hosp_a, N_DRAWS, 9, byrow=TRUE), matrix(cfr
 cfrN_d <- qbeta(nextU(9), matrix(cfr_nonh_a, N_DRAWS, 9, byrow=TRUE), matrix(cfr_nonh_b, N_DRAWS, 9, byrow=TRUE))
 dwMM_d <- qbeta(nextU(), dp$dw_mm$a, dp$dw_mm$b); dwSV_d <- qbeta(nextU(), dp$dw_sev$a, dp$dw_sev$b)
 dwCH_d <- qbeta(nextU(), dp$dw_chr$a, dp$dw_chr$b)
-duMM_d <- qlnorm(nextU(), dp$du_mm$m, dp$du_mm$s); duSV_d <- qlnorm(nextU(), dp$du_sev$m, dp$du_sev$s)
+# Acute (mild/moderate) duration for MAYV is its own INFECTIOUS PERIOD, not CHIKV's:
+# recovery rate 1.0 (0.7-1.4) per week, so duration = 1/rate = 1 wk (0.714-1.429 wk),
+# converted to years. Lognormal matched to those bounds. Everything else below -- the
+# disability weights, the severe/hospitalised duration, and the sub-acute and chronic
+# durations -- stays borrowed from the CHIKV parameter set.
+MAYV_ACUTE_DUR <- list(m = log(1/52.1429), s = (log(1/0.7) - log(1/1.4))/(2*1.96))
+duMM_d <- qlnorm(nextU(), MAYV_ACUTE_DUR$m, MAYV_ACUTE_DUR$s)
+duSV_d <- qlnorm(nextU(), dp$du_sev$m, dp$du_sev$s)   # severe: borrowed from CHIKV
 duSB_d <- qlnorm(nextU(), dp$du_sub$m, dp$du_sub$s)   # sub-acute duration (chronic DW applied)
 duCH_d <- qlnorm(nextU(), dp$du_chr$m, dp$du_chr$s)
 le_d   <- qlnorm(nextU(9), matrix(dp$le$m, N_DRAWS, 9, byrow=TRUE), matrix(dp$le$s, N_DRAWS, 9, byrow=TRUE))
-# Marginal recovery shares: acute (<=14d), sub-acute (14d-3m), chronic (>3m = 6m+12m+30m)
-acy_d <- qbeta(nextU(), dp$p14_y$a, dp$p14_y$b); aco_d <- qbeta(nextU(), dp$p14_o$a, dp$p14_o$b)
-sby_d <- qbeta(nextU(), dp$p90_y$a, dp$p90_y$b); sbo_d <- qbeta(nextU(), dp$p90_o$a, dp$p90_o$b)
-chy_d <- qbeta(nextU(), dp$p6_y$a,  dp$p6_y$b)  + qbeta(nextU(), dp$p12_y$a, dp$p12_y$b) +
-         qbeta(nextU(), dp$p30_y$a, dp$p30_y$b)
-cho_d <- qbeta(nextU(), dp$p6_o$a,  dp$p6_o$b)  + qbeta(nextU(), dp$p12_o$a, dp$p12_o$b) +
-         qbeta(nextU(), dp$p30_o$a, dp$p30_o$b)
+# ---- MAYV-SPECIFIC recovery shares, from Halsey et al. 2015 (Peru, n = 16) -----------
+# Arthralgia prevalence: 15/16 at the acute visit, 11/16 at 3 months. Taking the visits as
+# a partition of one cohort gives counts 1 / 4 / 11 of 16 for acute, sub-acute and chronic,
+# sampled as Dirichlet(1, 4, 11) so the three shares stay correlated and sum to 1 in every
+# draw. Built from independent Gammas, the standard construction.
+#
+# CAVEATS, both material:
+#   * Halsey's first follow-up is DAY 20, so nothing in it observes the <=14 d boundary.
+#     The acute share is really "had no arthralgia at the acute visit" (1 of 16), not
+#     "resolved within 14 days", and is therefore far lower than CHIKV's 0.34-0.42.
+#   * The day-20 visit is dropped. Halsey reports prevalence FALLING to 3/16 at day 20 then
+#     RISING to 11/16 at 3 months, which the authors treat as a real biphasic pattern. No
+#     survival-style decomposition can represent that, so the dip is set aside; this is an
+#     assumption, not a correction.
+# The resulting chronic share (0.688) is 1.8-2.4x the CHIKV shares previously borrowed, so
+# this RAISES MAYV burden. Mutricy et al. 2022 (no arthralgia beyond 3 months) would put it
+# at ~0. The two small series bracket a wide range; see the notes sheet.
+HALSEY_COUNTS <- c(acute = 1, subacute = 4, chronic = 11)     # of 16 patients
+gam <- sapply(HALSEY_COUNTS, function(a) qgamma(nextU(), shape = a, rate = 1))
+dir_d  <- gam / rowSums(gam)                                   # Dirichlet(1, 4, 11)
+acy_d <- aco_d <- dir_d[, 1]     # no age split in Halsey: young and old share one estimate
+sby_d <- sbo_d <- dir_d[, 2]
+chy_d <- cho_d <- dir_d[, 3]
 stopifnot(col == K)
 
 # ---- MAYV has NO confirmed attributable deaths -------------------------------

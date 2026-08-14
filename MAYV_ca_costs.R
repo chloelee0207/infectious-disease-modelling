@@ -117,9 +117,17 @@ cost_of <- function(pd) {
   p_sub <- safe(pd[, "n_subacute"] + pd[, "n_chronic"], symp)  # still ill past 14d
   p_chr <- safe(pd[, "n_chronic"], symp)                       # still ill past 3 months
   n_sub <- nonh * p_sub; n_chr <- nonh * p_chr
-  ch <- hosp*pc_hosp; ca <- nonh*pc_acute; cs <- n_sub*pc_sub; cc <- n_chr*pc_chr
-  list(cost = cbind(hosp_inpatient = ch, out_acute = ca, out_subacute = cs,
-                    out_chronic = cc, total_direct_medical = ch + ca + cs + cc),
+  # MAYV costs INPATIENT CARE ONLY. The per-admission cost is borrowed from the CHIKV
+  # source (Goncalves), on the reasoning that an admitted arboviral patient in the same
+  # SUS/private mix costs about the same whichever alphavirus it is. OUTPATIENT care is
+  # deliberately NOT costed: it would require the treatment flowchart, the drugs used and
+  # their unit costs for Mayaro, none of which exist, and assuming the chikungunya regimen
+  # would manufacture a number rather than estimate one. The outpatient columns are
+  # therefore set to NA -- not zero, which would read as "no outpatient cost occurs".
+  ch <- hosp*pc_hosp
+  na <- rep(NA_real_, length(ch))
+  list(cost = cbind(hosp_inpatient = ch, out_acute = na, out_subacute = na,
+                    out_chronic = na, total_direct_medical = ch),
        count = cbind(symptomatic = symp, reported = pd[, "reported"], hospitalised = hosp,
                      non_hospitalised = nonh, entered_subacute = n_sub,
                      entered_chronic = n_chr))
@@ -151,8 +159,15 @@ count_pd <- setNames(lapply(scen_names, function(s) cost_of(G$per_draw[[s]])$cou
 # ------------------------------------------------------------
 # 4. Summaries -- over ALL draws (rows `ok`, which is every draw at fixed R0)
 # ------------------------------------------------------------
-q3  <- function(x) c(median(x), quantile(x, .025), quantile(x, .975))
-fmt <- function(x, dp = 0) sprintf("%s (%s - %s)",
+# NA-safe: the MAYV outpatient columns are deliberately all-NA, and quantile() of an
+# all-NA vector errors rather than returning NA.
+q3  <- function(x) {
+  if (all(is.na(x))) return(c(NA_real_, NA_real_, NA_real_))
+  c(median(x, na.rm = TRUE), quantile(x, .025, na.rm = TRUE), quantile(x, .975, na.rm = TRUE))
+}
+# Outpatient columns are deliberately all-NA for MAYV, so the summariser must say so
+# rather than error or print a spurious zero.
+fmt <- function(x, dp = 0) if (all(is.na(x))) "not estimated" else sprintf("%s (%s - %s)",
         formatC(round(x[1], dp), big.mark = ",", format = "f", digits = dp),
         formatC(round(x[2], dp), big.mark = ",", format = "f", digits = dp),
         formatC(round(x[3], dp), big.mark = ",", format = "f", digits = dp))
@@ -167,11 +182,13 @@ sh_costs <- do.call(rbind, lapply(scen_names, function(s) {
              out_acute_BRL2019            = fmt(q3(m[, "out_acute"])),
              out_subacute_BRL2019         = fmt(q3(m[, "out_subacute"])),
              out_chronic_BRL2019          = fmt(q3(m[, "out_chronic"])),
+             OUTPATIENT_total_BRL2019     = fmt(q3(m[, "out_acute"] + m[, "out_subacute"] + m[, "out_chronic"])),
              TOTAL_direct_medical_BRL2019 = fmt(q3(m[, "total_direct_medical"])),
              hosp_inpatient_USD2026       = fmt(q3(u[, "hosp_inpatient"])),
              out_acute_USD2026            = fmt(q3(u[, "out_acute"])),
              out_subacute_USD2026         = fmt(q3(u[, "out_subacute"])),
              out_chronic_USD2026          = fmt(q3(u[, "out_chronic"])),
+             OUTPATIENT_total_USD2026     = fmt(q3(u[, "out_acute"] + u[, "out_subacute"] + u[, "out_chronic"])),
              TOTAL_direct_medical_USD2026 = fmt(q3(u[, "total_direct_medical"])),
              stringsAsFactors = FALSE) }))
 
@@ -293,13 +310,14 @@ sh_check <- data.frame(
 # 9. Notes + write
 # ------------------------------------------------------------
 sh_notes <- data.frame(item = c(
- "Disease", "Currency", "Currency conversion", "Unit cost source", "BORROWED-COST CAVEAT", "Treatment regimen source",
+ "Disease", "Scope of costing", "Currency", "Currency conversion", "Unit cost source", "BORROWED-COST CAVEAT", "Treatment regimen source",
  "Epidemic source", "Evaluation window", "Conditioning", "Draws",
  "Denominator (outpatient)", "Denominator (inpatient)", "Phase counts",
  "Deaths", "Hospitalisation cost", "Unused input",
  "Why medians do not add up", "Averted costs", "Scope"),
  detail = c(
  "Mayaro virus (MAYV), Caldas Novas, hypothetical outbreak.",
+ "INPATIENT ONLY. The per-admission cost is borrowed from the CHIKV source. Outpatient care is NOT costed for MAYV: the treatment flowchart, drugs and unit costs do not exist for Mayaro, and assuming the chikungunya regimen would manufacture a figure rather than estimate one. Outpatient columns are NA, not zero, so the omission cannot be mistaken for an absence of cost. TOTAL_direct_medical is therefore a LOWER BOUND on true direct medical cost.",
  "Costed in 2019 Brazilian reais (BRL); every cost sheet is also given in 2026 US$.",
  sprintf("2019 BRL -> June 2026 BRL by the IPCA health and personal care subgroup (IBGE group 6), chained from the 12-month accumulated rate published each June 2020-2026 (2.05, 4.31, 6.14, 10.37, 6.09, 5.16, 6.21%%): factor %.5f, +%.2f%%. Then / %.4f, the mean USD/BRL over 2 Feb - 30 Jul 2026. Combined multiplier %.6f. No PPP adjustment.", IPCA_HEALTH_19_26, 100*(IPCA_HEALTH_19_26-1), USD_BRL_2026, BRL2019_TO_USD2026),
  "Goncalves et al. 2024, Rev Bras Epidemiol 27:e240026 (Rio de Janeiro, 2019) -- a CHIKUNGUNYA study.",

@@ -152,17 +152,24 @@ fmt <- function(x, dp = 0) sprintf("%s (%s - %s)",
 # untouched by the conversion -- only the units and magnitudes change.
 sh_costs <- do.call(rbind, lapply(scen_names, function(s) {
   m <- cost_pd[[s]]; u <- m * BRL2019_TO_USD2026
+  # OUTPATIENT TOTAL = acute + sub-acute + chronic, summed PER DRAW so the interval keeps
+  # the correlation between phases; summing the three medians would understate it.
+  out_brl <- m[, "out_acute"] + m[, "out_subacute"] + m[, "out_chronic"]
+  out_usd <- u[, "out_acute"] + u[, "out_subacute"] + u[, "out_chronic"]
   data.frame(scenario = s,
              hosp_inpatient_BRL2019       = fmt(q3(m[, "hosp_inpatient"])),
              out_acute_BRL2019            = fmt(q3(m[, "out_acute"])),
              out_subacute_BRL2019         = fmt(q3(m[, "out_subacute"])),
              out_chronic_BRL2019          = fmt(q3(m[, "out_chronic"])),
+             OUTPATIENT_total_BRL2019     = fmt(q3(out_brl)),
              TOTAL_direct_medical_BRL2019 = fmt(q3(m[, "total_direct_medical"])),
              hosp_inpatient_USD2026       = fmt(q3(u[, "hosp_inpatient"])),
              out_acute_USD2026            = fmt(q3(u[, "out_acute"])),
              out_subacute_USD2026         = fmt(q3(u[, "out_subacute"])),
              out_chronic_USD2026          = fmt(q3(u[, "out_chronic"])),
+             OUTPATIENT_total_USD2026     = fmt(q3(out_usd)),
              TOTAL_direct_medical_USD2026 = fmt(q3(u[, "total_direct_medical"])),
+             hosp_share_of_total_pct      = fmt(q3(100*m[, "hosp_inpatient"]/m[, "total_direct_medical"]), 1),
              stringsAsFactors = FALSE) }))
 
 sh_counts <- do.call(rbind, lapply(scen_names, function(s) {
