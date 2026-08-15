@@ -400,7 +400,10 @@ stopifnot(nrow(cost_pd[[1]]) == nrow(bmat[[1]]))   # cost draws align with engin
 resid_outcomes <- list(
   list(lab = "Cumulative DALYs",  src = "engine", col = "daly"),
   list(lab = "Cumulative deaths", src = "engine", col = "deaths"),
-  list(lab = "Healthcare cost",   src = "cost",   col = "total_direct_medical"))
+  # INPATIENT only, not total direct medical: MAYV outpatient care is deliberately not
+  # costed, so a total would compare a CHIKV total against a MAYV inpatient-only figure.
+  # Hospitalisation is the one component both models estimate on the same basis.
+  list(lab = "Hospitalisation cost", src = "cost", col = "hosp_inpatient"))
 bl <- bmat[["No vaccine (baseline)"]]
 for (arm in arm_names) {
   nm <- paste0(RESID_TIMING, " | ", arm)

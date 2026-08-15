@@ -9,7 +9,7 @@
 #   1. CHIKV_MAYV_epicurves.png       epidemic curves, side by side
 #   2. combined_residual_burden.png   burden as % of no vaccination
 #   3. CHIKV_MAYV_owsa.png            tornado, CHIKV over MAYV
-#   4. combined_master.png            A epicurves / B DALYs / C deaths / D healthcare cost
+#   4. combined_master.png            A epicurves / B DALYs / C deaths / D hospitalisation cost
 #   5. combined_per_100k_doses.xlsx   benefit per 100,000 doses, CHIKV beside MAYV
 #
 # Pure presentation: reads the .rds files the model scripts write and does no SEIR or
@@ -36,10 +36,10 @@ suppressMessages({library(dplyr); library(ggplot2); library(patchwork); library(
 if (!exists("MAYV_EPI_SCENARIO")) MAYV_EPI_SCENARIO <- "high"   # "high" R0 2.1-2.9 | "low" R0 1.1-1.3
 
 ARMS      <- c("Disease-blocking", "Disease + infection blocking")
-OUT_LV    <- c("Cumulative DALYs", "Cumulative deaths", "Healthcare cost")  # as stored in the .rds
+OUT_LV    <- c("Cumulative DALYs", "Cumulative deaths", "Hospitalisation cost")  # as stored in the .rds
 # Strip text for the B/C/D rows -- EDIT HERE to rename them. Must stay in OUT_LV order;
 # the .rds names above are the lookup keys and must not be changed.
-OUT_LAB   <- c("DALYs", "Deaths", "Healthcare costs")
+OUT_LAB   <- c("DALYs", "Deaths", "Hospitalisation costs")
 FILL      <- c("No vaccination" = "grey60", "Vaccination" = "#4e79a7")
 scen_cols <- c("No vaccination" = "grey55", "Disease-blocking" = "#4393c3",
                "Disease + infection blocking" = "#d6604d")
@@ -68,7 +68,7 @@ FS <- list(
   bur_axis_x     = 12,  # "No vaccination" / "Vaccination"
   bur_axis_y     = 12,  # 0% - 100%
   bur_strip_x    = 12,  # top grey strips: the vaccine arm names
-  bur_strip_y    = 12,  # right grey strips: DALYs / Deaths / Healthcare costs
+  bur_strip_y    = 12,  # right grey strips: DALYs / Deaths / Hospitalisation costs
 
   # ---- the separate tornado figure, CHIKV_MAYV_owsa.png
   owsa_base      = 14,

@@ -251,7 +251,10 @@ stopifnot(nrow(cost_pd[[1]]) == nrow(base_pd))    # cost draws align with engine
 # outcome -> (source, column). "engine" = per-draw burden; "cost" = per-draw cost layer.
 resid_outcomes <- list(
   list(lab = "Cumulative DALYs", src = "engine", col = "daly"),
-  list(lab = "Healthcare cost",  src = "cost",   col = "total_direct_medical"))
+  # INPATIENT only, not total direct medical: MAYV outpatient care is deliberately not
+  # costed, so a total would compare a CHIKV total against a MAYV inpatient-only figure.
+  # Hospitalisation is the one component both models estimate on the same basis.
+  list(lab = "Hospitalisation cost", src = "cost", col = "hosp_inpatient"))
 nm <- vac_names[1]
 for (o in resid_outcomes) {
   v <- if (o$src == "engine") pct_of_base(G$per_draw[[nm]][ok, o$col], base_pd[ok, o$col])
