@@ -424,10 +424,13 @@ row_A <- pA_c + pA_m + plot_layout(widths = c(1, 1), guides = "collect") &
 row_BCD <- plot_spacer() + with_ylab(burden_rows) + plot_spacer() +
   plot_layout(widths = c(.08, 1, .08))
 
-master <- row_A / row_BCD + plot_layout(heights = c(1.3, 2.7))
+# Burden block gets a larger share and the figure is taller overall. The right-hand strip
+# text is rotated, so its available length IS the row height -- "Hospitalisation costs" is
+# the longest label and sets the requirement.
+master <- row_A / row_BCD + plot_layout(heights = c(1.15, 3.1))
 
-save_fig("combined_master.png", master, width = 13, height = 12.5, dpi = 150)
-ggsave("combined_master.pdf", master, width = 11, height = 12.5)
+save_fig("combined_master.png", master, width = 13, height = 15, dpi = 150)
+ggsave("combined_master.pdf", master, width = 13, height = 15)
 cat("Saved combined_master.png / .pdf (A epicurves, B DALYs, C deaths, D healthcare cost).\n")
 
 # ------------------------------------------------------------
