@@ -510,28 +510,43 @@ cc <- if (file.exists("CHIKV_ca_costs.rds")) readRDS("CHIKV_ca_costs.rds") else 
 cm <- if (file.exists("MAYV_ca_costs.rds"))  readRDS("MAYV_ca_costs.rds")  else NULL
 if (!is.null(cc) && !is.null(cm)) {
   K <- 1.47761 / 5.1257                                   # BRL2019 -> USD2026, as in the cost scripts
-  cost100 <- function(cp, nm, doses) {
-    a <- (cp[["No vaccine (baseline)"]][, "total_direct_medical"] -
-          cp[[nm]][, "total_direct_medical"]) * K
+  # Costs are split into INPATIENT and OUTPATIENT rather than reported as one total.
+  # MAYV outpatient care is deliberately not costed (no Mayaro treatment flowchart, drugs
+  # or unit costs exist), so those cells are NA and read "not estimated" -- never 0, which
+  # would assert that no outpatient cost is incurred.
+  cost100 <- function(cp, nm, doses, comp) {
+    base <- cp[["No vaccine (baseline)"]]; scen <- cp[[nm]]
+    a <- if (identical(comp, "outpatient")) {
+           (rowSums(base[, c("out_acute","out_subacute","out_chronic")]) -
+            rowSums(scen[, c("out_acute","out_subacute","out_chronic")])) * K
+         } else (base[, comp] - scen[, comp]) * K
     r <- 1e5 * a / doses; r[!is.finite(r)] <- NA; r }
-  a <- cost100(cc$cost_pd, "pre-outbreak | Disease-blocking", ch_db[, "doses"])
-  b <- cost100(cc$cost_pd, "pre-outbreak | Disease + infection blocking", ch_di[, "doses"])
-  m <- cost100(cm$cost_pd, names(cm$cost_pd)[2], mv_db[, "doses"])
-  rows[[length(rows)+1]] <- data.frame(outcome = "Healthcare cost (US$ 2026)",
-    CHIKV_disease_blocking = fmt100(a), CHIKV_disease_and_infection = fmt100(b),
-    MAYV_disease_blocking = fmt100(m), combined_CHIKV_db_plus_MAYV = fmt100(a + m[perm]),
-    stringsAsFactors = FALSE)
+  f100 <- function(v) if (all(is.na(v))) "not estimated" else fmt100(v)
+  mv_nm <- names(cm$cost_pd)[2]
+  for (cmp in c("hosp_inpatient", "outpatient")) {
+    a <- cost100(cc$cost_pd, "pre-outbreak | Disease-blocking", ch_db[, "doses"], cmp)
+    b <- cost100(cc$cost_pd, "pre-outbreak | Disease + infection blocking", ch_di[, "doses"], cmp)
+    m <- cost100(cm$cost_pd, mv_nm, mv_db[, "doses"], cmp)
+    comb <- if (all(is.na(m))) "CHIKV only (MAYV not estimated)" else f100(a + m[perm])
+    rows[[length(rows)+1]] <- data.frame(
+      outcome = if (cmp == "hosp_inpatient") "Hospitalisation cost (US$ 2026)"
+                else "Outpatient cost (US$ 2026)",
+      CHIKV_disease_blocking = f100(a), CHIKV_disease_and_infection = f100(b),
+      MAYV_disease_blocking = f100(m), combined_CHIKV_db_plus_MAYV = comb,
+      stringsAsFactors = FALSE)
+  }
 } else cat("NOTE: cost layers not found -- healthcare-cost row omitted from the per-100k table.\n")
 
 per100k_tbl <- do.call(rbind, rows)
 p100_notes <- data.frame(item = c("Unit", "Why doses", "Why not a ratio", "Combined column",
-                                  "Deaths", "Doses"),
+                                  "Deaths", "Doses", "Cost split"),
   detail = c(
   "Outcomes averted per 100,000 doses administered, median (95% UI), computed per draw.",
   "Ixchiq is deployed once, so both models consume the same doses. Doses are the shared input, which makes per-dose benefit comparable across pathogens without either model being divided by the other.",
   "Dividing Mayaro cases averted by chikungunya cases averted compares two different models on a scale with no natural zero. Per-dose benefit has a natural zero (no benefit) and is additive.",
   "CHIKV disease-blocking + MAYV, added per draw with MAYV randomly permuted, since the two models' draws are not paired. Assumes the two epidemics are independent, and is conditional on BOTH occurring as modelled -- the Mayaro outbreak is hypothetical.",
   "MAYV deaths are identically zero (MAYV_ZERO_DEATHS = TRUE fixes the CFR at 0), so the Mayaro column is 0 by construction.",
+  "Costs are split into inpatient and outpatient. MAYV outpatient is NOT costed -- no Mayaro treatment flowchart, drug list or unit costs exist, and borrowing the chikungunya regimen would manufacture a figure. Those cells read 'not estimated' rather than 0, and the combined outpatient row is therefore CHIKV only.",
   sprintf("CHIKV %s, MAYV %s (median), a %.2f%% difference from sampling alone.",
           format(round(median(ch_db[, "doses"])), big.mark=","),
           format(round(median(mv_db[, "doses"])), big.mark=","),
