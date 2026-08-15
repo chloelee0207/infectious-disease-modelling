@@ -250,16 +250,23 @@ stopifnot(nrow(cost_pd[[1]]) == nrow(base_pd))    # cost draws align with engine
 
 # outcome -> (source, column). "engine" = per-draw burden; "cost" = per-draw cost layer.
 resid_outcomes <- list(
-  list(lab = "Cumulative DALYs", src = "engine", col = "daly"),
-  # INPATIENT only, not total direct medical: MAYV outpatient care is deliberately not
-  # costed, so a total would compare a CHIKV total against a MAYV inpatient-only figure.
-  # Hospitalisation is the one component both models estimate on the same basis.
-  list(lab = "Hospitalisation cost", src = "cost", col = "hosp_inpatient"))
+  list(lab = "Cumulative DALYs",  src = "engine", col = "daly"),
+  # Deaths are omitted: MAYV_ZERO_DEATHS = TRUE fixes the CFR at 0, so 0/0 is undefined.
+  # The blank Mayaro deaths cell in the merged figure is drawn by combined_outputs.R.
+  # Costs are split. Only HOSPITALISATION is plotted, because MAYV outpatient care is
+  # deliberately not costed and a total would compare a CHIKV total against a MAYV
+  # inpatient-only figure. The workbook carries all three so the split is auditable.
+  list(lab = "Hospitalisation cost",  src = "cost", col = "hosp_inpatient"),
+  list(lab = "Outpatient cost",       src = "cost", col = "outpatient"),
+  list(lab = "Total direct medical",  src = "cost", col = "total_direct_medical"))
+PLOT_OUTCOMES <- c("Cumulative DALYs", "Hospitalisation cost")
+cost_col <- function(m, col) if (identical(col, "outpatient"))
+  rowSums(m[, c("out_acute", "out_subacute", "out_chronic"), drop = FALSE]) else m[, col]
 nm <- vac_names[1]
 for (o in resid_outcomes) {
   v <- if (o$src == "engine") pct_of_base(G$per_draw[[nm]][ok, o$col], base_pd[ok, o$col])
-       else pct_of_base(cost_pd[[nm]][ok, o$col],
-                        cost_pd[["No vaccine (baseline)"]][ok, o$col])
+       else pct_of_base(cost_col(cost_pd[[nm]][ok, , drop = FALSE], o$col),
+                        cost_col(cost_pd[["No vaccine (baseline)"]][ok, , drop = FALSE], o$col))
   add_res(o$lab, "No vaccination", 100)
   add_res(o$lab, "Vaccination",    v)
 }
@@ -267,8 +274,10 @@ resid <- do.call(rbind, res_rows)
 resid$scenario <- factor(resid$scenario, levels = c("No vaccination", "Vaccination"))
 resid$outcome  <- factor(resid$outcome, levels = sapply(resid_outcomes, `[[`, "lab"))
 resid$arm      <- factor("Disease-blocking")      # MAYV has no infection-blocking arm
+resid_plot <- resid[resid$outcome %in% PLOT_OUTCOMES, ]
+resid_plot$outcome <- droplevels(resid_plot$outcome)
 
-p_resid <- ggplot(resid, aes(scenario, med, fill = scenario)) +
+p_resid <- ggplot(resid_plot, aes(scenario, med, fill = scenario)) +
   geom_col(width = .6) +
   geom_errorbar(aes(ymin = lo, ymax = hi), width = .15, linewidth = .35) +
   facet_grid(outcome ~ arm) +
@@ -290,7 +299,7 @@ resid$red_med <- 100 - resid$med
 resid$red_lo  <- 100 - resid$hi
 resid$red_hi  <- 100 - resid$lo
 write_xlsx(list(residual_burden_pct = resid), "MAYV_ca_residual_burden.xlsx")
-saveRDS(resid, "MAYV_ca_residual_burden.rds")     # for the merged CHIKV|MAYV figure
+saveRDS(resid_plot, "MAYV_ca_residual_burden.rds")     # for the merged CHIKV|MAYV figure
 cat("Saved MAYV_ca_residual_burden.png and .xlsx (burden as % of no vaccination;\n",
     "     deaths panel omitted -- MAYV CFR is fixed at 0).\n", sep = "")
 
