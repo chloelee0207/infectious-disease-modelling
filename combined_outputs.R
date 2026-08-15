@@ -433,39 +433,6 @@ save_fig("combined_master.png", master, width = 13, height = 15, dpi = 150)
 ggsave("combined_master.pdf", master, width = 13, height = 15)
 cat("Saved combined_master.png / .pdf (A epicurves, B DALYs, C deaths, D healthcare cost).\n")
 
-# ------------------------------------------------------------
-# 4b. Master figure, CHIKUNGUNYA-ONLY burden panels (additive: 4. above is untouched).
-# Panel A still carries both pathogens -- symptomatic cases come straight out of the MAYV
-# transmission model and need no borrowed inputs.
-# Panels B-D drop the Mayaro column. DALYs, deaths and healthcare costs are all downstream
-# of the disease-progression parameters (hospitalisation rate, CFRs, disability weights,
-# illness durations, unit costs), and MAYV borrows those wholesale from chikungunya -- there
-# is no MAYV-specific severity or cost-of-illness evidence. Printing them beside CHIKV's own
-# values invites a reader to treat them as independent MAYV estimates, when they are the
-# CHIKV progression applied to a MAYV case count. Dropping the column states that honestly.
-# NB the Mayaro DEATHS panel was already blank (MAYV CFR = 0), so only the DALY and cost
-# columns actually disappear.
-# ------------------------------------------------------------
-# The right-hand vertical strips (DALYs / Deaths / Healthcare costs) are drawn by whichever
-# block is RIGHTMOST -- in the two-pathogen layout that is the Mayaro column, via
-# row_strip = TRUE. Dropping that column also drops the strips, so the chikungunya blocks are
-# rebuilt here with row_strip = TRUE to carry them instead. rB$c / rC$c / rD$c are left as
-# they are, so the two-pathogen figure above is unaffected.
-cB <- burden(one_row(chik, OUT_LAB[1]), TRUE, NULL, FALSE, TRUE, "B", row_strip = TRUE)
-cC <- burden(one_row(chik, OUT_LAB[2]), NULL, NULL, FALSE, TRUE, "C", row_strip = TRUE)
-cD <- burden(one_row(chik, OUT_LAB[3]), NULL, NULL, TRUE,  TRUE, "D", row_strip = TRUE)
-burden_rows_chik <- head_lab("Chikungunya") / cB / cC / cD +
-  plot_layout(heights = c(.01, 1, 1, 1))
-# wider side spacers than the 3-column version: the block is now two bars across, so
-# without the extra inset the bars would stretch to fill the full 13in figure.
-row_BCD_chik <- plot_spacer() + with_ylab(burden_rows_chik) + plot_spacer() +
-  plot_layout(widths = c(.30, 1, .30))
-master_chik <- row_A / row_BCD_chik + plot_layout(heights = c(1.3, 2.7))
-save_fig("combined_master_chikv_burden.png", master_chik, width = 13, height = 12.5, dpi = 150)
-# width 13 to match the PNG: at 11in the whole block is compressed and the B/C/D-to-axis
-# gap closes up again, so the two formats would not look alike.
-ggsave("combined_master_chikv_burden.pdf", master_chik, width = 13, height = 12.5)
-cat("Saved combined_master_chikv_burden.png / .pdf (A both pathogens; B-D chikungunya only).\n")
 
 # ------------------------------------------------------------
 # 5. Benefit per 100,000 doses, CHIKV beside MAYV.
