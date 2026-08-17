@@ -8,6 +8,12 @@
 # ---- macOS junk ----
 .DS_Store
 
+# ---- Manuscripts & office documents: NEVER publish to this public repo ----
+*.docx
+*.doc
+*.pptx
+~$*.docx
+
 # ---- Editor / tool folders ----
 .claude/
 
@@ -23,6 +29,14 @@
 # ---- Archived output figures ----
 Archive/
 
+# ---- Exploratory serology work, not part of the CHIKV/MAYV pipeline ----
+# FOI.R fitted Rsero force-of-infection models to Abad-Franch_seroprevalence.xlsx. No
+# current script sources either, so both are kept locally but off the public repo.
+# NOTE: CHIKV_ca_lhs.R hardcodes the FOI prior as 0.008 (0.003-0.020), commented
+# "from serology" -- FOI.R is the derivation, so keep a local copy for the record.
+FOI.R
+Abad-Franch_seroprevalence.xlsx
+
 # ---- Excel/LibreOffice lock files ----
 ~$*
 
@@ -31,14 +45,16 @@ Archive/
 # burden LHS drawn inside the engine. The CHIKV pair joins on `transmission_row`, since
 # that engine resamples the stage-1 ensemble with replacement; for MAYV the pairing is 1:1.
 # Scenario-tagged copies (e.g. MAYV_ca_burden_draws_high.csv) stay ignored.
-!CHIKV_ca_lhs_draws.csv
-!CHIKV_ca_burden_draws.csv
-!MAYV_ca_lhs_draws.csv
-!MAYV_ca_burden_draws.csv
+# Leading "/" anchors these to the repo root ON PURPOSE: without it the negation matches
+# the basename at any depth, which would un-ignore the stale archived copies sitting in
+# Outputs_*/ and publish snapshots that no longer match the current model.
+!/CHIKV_ca_lhs_draws.csv
+!/CHIKV_ca_burden_draws.csv
+!/MAYV_ca_lhs_draws.csv
+!/MAYV_ca_burden_draws.csv
 
 # ---- INPUT data: hand-maintained source parameters, MUST be tracked ----
 # (the *.xlsx / *.csv rules above ignore generated outputs; these are exceptions)
-!Abad-Franch_seroprevalence.xlsx
 !beta_hyolim.xlsx
 !costs.xlsx
 !disease_progression.xlsx
