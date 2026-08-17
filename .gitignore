@@ -37,6 +37,11 @@ Archive/
 FOI.R
 Abad-Franch_seroprevalence.xlsx
 
+# ---- Orphaned input: no script reads it ----
+# Both models take their Caldas Novas denominators from population.xlsx
+# (CHIKV_ca_lhs.R, MAYV_ca_lhs.R, weekly_age_stratified.R), so this one is unused.
+population_MAYV.xlsx
+
 # ---- Excel/LibreOffice lock files ----
 ~$*
 
@@ -61,7 +66,6 @@ Abad-Franch_seroprevalence.xlsx
 !model_calibration.xlsx
 !mortality_2024.xlsx
 !population.xlsx
-!population_MAYV.xlsx
 !weekly_case.xlsx
 # NOTE: rainfall.xlsx (129 MB) exceeds GitHub's 100 MB file limit and stays ignored.
 #       Source: see rainfall_season.R / extract_caldas_rainfall.R for provenance.
