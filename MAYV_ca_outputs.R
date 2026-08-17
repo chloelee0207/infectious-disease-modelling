@@ -94,8 +94,13 @@ mc_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
 
 # outcomes averted per 100,000 doses (scale-free). Infections averted only by an
 # infection-blocking arm, so disease-blocking shows NA there.
+# YLDs and YLLs are listed beside DALYs so the per-dose return splits into its
+# morbidity and mortality halves; DALY = YLD + YLL, so the three stay consistent.
+# MAYV YLLs are identically zero (MAYV_ZERO_DEATHS fixes the CFR at 0), so that
+# column reads 0 by construction rather than being an estimate.
 per100k_outcomes <- c(infections="Infections", symptomatic="Symptomatic",
-                      hospitalisations="Hospitalisations", deaths="Deaths", daly="DALYs")
+                      hospitalisations="Hospitalisations", deaths="Deaths",
+                      yld="YLDs", yll="YLLs", daly="DALYs")
 mc_per100k <- do.call(rbind, lapply(vac_names, function(nm) {
   doses <- G$per_draw[[nm]][ok, "doses"]
   b <- base_pd[ok, , drop = FALSE]; s <- G$per_draw[[nm]][ok, , drop = FALSE]
@@ -201,11 +206,21 @@ daly_by_scenario <- do.call(rbind, lapply(scen_names, function(nm) {
              YLD_chronic = fmtq(m[ok,"yld_chronic"]), row.names = NULL, check.names = FALSE)
 }))
 base_daly_ok <- base_pd[ok, "daly"]
+# YLD and YLL averted, absolute and per 100,000 doses, alongside DALYs. MAYV YLLs are
+# identically zero (MAYV_ZERO_DEATHS fixes the CFR at 0), so YLL_averted and its per-dose
+# column are 0 by construction, not an estimate -- and DALY_averted equals YLD_averted.
 daly_averted <- do.call(rbind, lapply(vac_names, function(nm) {
-  ad <- base_daly_ok - G$per_draw[[nm]][ok, "daly"]
+  s <- G$per_draw[[nm]][ok, , drop = FALSE]; doses <- s[,"doses"]
+  ad <- base_daly_ok - s[,"daly"]
+  a_yld <- base_pd[ok,"yld"] - s[,"yld"]; a_yll <- base_pd[ok,"yll"] - s[,"yll"]
+  p100 <- function(v) { r <- 1e5 * v / doses; r[!is.finite(r) | r < 0] <- NA; fmtq(r, 0) }
   data.frame(timing = lab_timing(nm), arm = lab_arm(nm),
+             YLD_averted = fmtq(a_yld), YLL_averted = fmtq(a_yll),
              DALY_averted = fmtq(ad),
              pct_DALY = fmtpct(ad / base_daly_ok),          # now with 95% UI
+             YLD_averted_per_100k_doses  = p100(a_yld),
+             YLL_averted_per_100k_doses  = p100(a_yll),
+             DALY_averted_per_100k_doses = p100(ad),
              row.names = NULL, check.names = FALSE)
 }))
 write_xlsx(list(daly_by_scenario = daly_by_scenario, daly_averted = daly_averted),

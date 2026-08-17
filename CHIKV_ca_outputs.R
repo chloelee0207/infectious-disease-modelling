@@ -56,8 +56,11 @@ mc_tbl <- do.call(rbind, lapply(vac_names, function(nm) {
 # Outcomes averted per 100,000 doses (= 1e5 x averted / doses, per draw). Scale-free,
 # so it is comparable across settings of different population size. Infections are
 # averted only by the infection-blocking arm, so disease-blocking shows NA there.
+# YLDs and YLLs are listed beside DALYs so the per-dose return splits into its
+# morbidity and mortality halves; DALY = YLD + YLL, so the three stay consistent.
 per100k_outcomes <- c(infections="Infections", symptomatic="Symptomatic",
-                      hospitalisations="Hospitalisations", deaths="Deaths", daly="DALYs")
+                      hospitalisations="Hospitalisations", deaths="Deaths",
+                      yld="YLDs", yll="YLLs", daly="DALYs")
 mc_per100k <- do.call(rbind, lapply(vac_names, function(nm) {
   doses <- bmat[[nm]][,"doses"]
   base_o <- bmat[["No vaccine (baseline)"]]; scen_o <- bmat[[nm]]
@@ -415,11 +418,22 @@ daly_by_scenario <- do.call(rbind, lapply(scen_names, function(nm) {
              YLD_acute = fmtq(m[,"yld_acute"]), YLD_subacute = fmtq(m[,"yld_subacute"]),
              YLD_chronic = fmtq(m[,"yld_chronic"]), row.names = NULL, check.names = FALSE)
 }))
+# YLD and YLL averted, in absolute terms and per 100,000 doses, alongside DALYs.
+# G$averted carries only infections/symptomatic/hospitalisations/deaths/daly, so the YLD
+# and YLL components are differenced from per_draw here rather than read off that matrix.
+# Per-dose figures use the same convention as averted_per_100k_doses: computed per draw,
+# with non-finite or negative values set to NA rather than clamped to zero.
 daly_averted <- do.call(rbind, lapply(vac_names, function(nm) {
-  m <- G$averted[[nm]]
+  m <- G$averted[[nm]]; s <- bmat[[nm]]; doses <- s[,"doses"]
+  p100 <- function(v) { r <- 1e5 * v / doses; r[!is.finite(r) | r < 0] <- NA; fmtq(r, 0) }
+  a_yld <- base_daly[,"yld"] - s[,"yld"]; a_yll <- base_daly[,"yll"] - s[,"yll"]
   data.frame(timing = sub(" \\|.*","",nm), arm = sub(".*\\| ","",nm),
+             YLD_averted = fmtq(a_yld), YLL_averted = fmtq(a_yll),
              DALY_averted = fmtq(m[,"daly"]),
              pct_DALY = sprintf("%.1f%%", 100*median(m[,"daly"]/base_daly[,"daly"], na.rm=TRUE)),
+             YLD_averted_per_100k_doses  = p100(a_yld),
+             YLL_averted_per_100k_doses  = p100(a_yll),
+             DALY_averted_per_100k_doses = p100(m[,"daly"]),
              row.names = NULL, check.names = FALSE)
 }))
 write_xlsx(list(daly_by_scenario = daly_by_scenario, daly_averted = daly_averted),
