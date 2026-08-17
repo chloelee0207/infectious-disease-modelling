@@ -33,7 +33,8 @@
 #   caldas_beta_season.rds: idx i -> ordinal 23+i  (W24=1 .. W22=52)  covers 24..75
 #   caldas_rain_season.rds: idx i -> ordinal 39+i  (W40=1 .. W38=52)  covers 40..91
 #
-# Output: caldas_hybrid_season.rds (68-wk, mean-1) + MAYV_ca_hybrid_envelope.png.
+# Output: caldas_hybrid_season.rds (52-wk, mean-1) + MAYV_ca_hybrid_envelope.png
+#         and a 600-dpi copy, MAYV_ca_hybrid_envelope_600dpi.png, for the manuscript.
 # Re-run whenever caldas_beta_season.rds or caldas_rain_season.rds changes.
 # ============================================================
 suppressMessages(library(ggplot2))
@@ -56,17 +57,32 @@ cat(sprintf("Wrote caldas_hybrid_season.rds: %d wks, mean=%.3f, max=%.2f, min-af
 
 # --- verification plot: the three envelopes on a shared ordinal-week axis ---
 wk_lab <- function(o) ifelse(o <= 53, o, o - 53)
+# Series labels. The colours are PINNED with scale_colour_manual rather than left to the
+# default hue palette: that palette assigns colours in factor order, which is alphabetical
+# for a character column, and "Average rainfall..." would sort first and steal the red from
+# the CHIKV series. Explicit hex values are the same three defaults, so the figure keeps the
+# red/green/blue reading it has always had whatever the labels say.
+LAB_BETA <- "CHIKV fitted weekly transmission rates \u03b2(t)"
+LAB_HYB  <- "Hybrid seasonal envelope"
+LAB_RAIN <- "Average rainfall in Caldas Novas"
+ENV_COL  <- c("#F8766D", "#00BA38", "#619CFF")            # ggplot hue_pal()(3): red, green, blue
+names(ENV_COL) <- c(LAB_BETA, LAB_HYB, LAB_RAIN)
+
 df <- rbind(
-  data.frame(ord = 24:75, val = beta,   env = "CHIKV beta (as-is)"),
-  data.frame(ord = 40:91, val = rain,   env = "Rainfall (as-is)"),
-  data.frame(ord = ords,  val = hybrid, env = "HYBRID (beta rise + dry tail)"))
+  data.frame(ord = 24:75, val = beta,   env = LAB_BETA),
+  data.frame(ord = 40:91, val = rain,   env = LAB_RAIN),
+  data.frame(ord = ords,  val = hybrid, env = LAB_HYB))
+df$env <- factor(df$env, levels = names(ENV_COL))          # legend order, not alphabetical
 p <- ggplot(df, aes(ord, val, colour = env)) + geom_line(linewidth = 1) +
   geom_vline(xintercept = TRANS, linetype = "dashed", colour = "grey50") +
   annotate("text", x = TRANS, y = Inf, label = "join\n2026-W10", vjust = 1.2, size = 3) +
   scale_x_continuous(breaks = c(24, 40, 50, 54, 63, 75, 91),
                      labels = wk_lab(c(24, 40, 50, 54, 63, 75, 91))) +
-  labs(x = "epi-week", y = "transmission envelope (mean-1)", colour = NULL,
-       title = "MAYV seasonal envelope: hybrid = CHIKV beta (rise/peak) + climatological dry-season tail") +
+  scale_colour_manual(values = ENV_COL, name = NULL) +
+  labs(x = "Week", y = "transmission envelope (mean-1)", colour = NULL) +
   theme_bw(11) + theme(legend.position = "bottom")
 ggsave("MAYV_ca_hybrid_envelope.png", p, width = 9, height = 4.6, dpi = 120)
-cat("Wrote MAYV_ca_hybrid_envelope.png\n")
+# 600-dpi companion for the manuscript: identical physical size and layout, so the two
+# are interchangeable in a document and only the pixel density differs.
+ggsave("MAYV_ca_hybrid_envelope_600dpi.png", p, width = 9, height = 4.6, dpi = 600)
+cat("Wrote MAYV_ca_hybrid_envelope.png and MAYV_ca_hybrid_envelope_600dpi.png\n")

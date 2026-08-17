@@ -287,6 +287,10 @@ vac_name   <- "Pre-outbreak | Disease-blocking"
 per_draw <- setNames(lapply(scen_names, function(x)
   matrix(NA_real_, N_DRAWS, length(OUTCOMES), dimnames = list(NULL, OUTCOMES))), scen_names)
 attack_base <- numeric(N_DRAWS)
+# Susceptible pool at t = 0, per draw: prior immunity is sampled, so the denominator of
+# any attack rate varies draw to draw. Stored so the outputs layer never re-derives it
+# from the ensemble (which would reintroduce a cross-file staleness risk).
+sus_pool <- numeric(N_DRAWS)
 wk_base <- wk_vacc <- matrix(NA_real_, N_DRAWS, T_weeks)   # weekly symptomatic (for the epicurve)
 # Dose accounting (pre-outbreak campaign, so R0-independent): doses ADMINISTERED to
 # the eligible 18-59, and the subset that reached SUSCEPTIBLES. Wastage = doses given
@@ -298,6 +302,7 @@ cat(sprintf("Running %d draws (baseline + pre-outbreak disease-blocking), R0 ~ %
 for (i in 1:N_DRAWS) {
   R0i<-E$R0[i]; gi<-E$gamma[i]; si<-E$sigma[i]; ri<-E$rho[i]; psi<-E$prop_symp[i]; immi<-E$immune_frac[i]
   Rimm <- rep(immi, A); sus <- N*(1-Rimm); I0i <- I0_total * sus/sum(sus)
+  sus_pool[i] <- sum(sus)               # susceptible pool at t = 0, this draw
   base_beta <- R0i * gi * season
   run <- seirv_vaccinated_MAYV(T_weeks, A, N, Rimm, I0i, base_beta, si, gi, ri,
            target_age, cov_d[i], del_d[i], start_pre + delay_d[i], VE_inf = 0, VE_block = veb_d[i],
@@ -436,9 +441,40 @@ base_curve_plot(wk_base, draw_set, "Predicted symptomatic cases (no vaccine)",
 # ------------------------------------------------------------
 # 7. Save per-draw + aggregated + the outbreak index (severity-phase counts included)
 # ------------------------------------------------------------
+# ---- Stage-2 replication file: the per-draw BURDEN parameters -----------------------
+# Counterpart to MAYV_ca_lhs_draws.csv (stage 1), so the two together contain every
+# sampled input. Unlike the CHIKV engine this one does NOT resample: N_DRAWS = n_ens and
+# the loop indexes E$...[i] directly, so burden draw i always pairs with stage-1 draw i.
+# transmission_row is therefore the identity, kept so both pathogens' files have the same
+# schema and the join is explicit rather than assumed.
+# The CFR columns are sampled but unused: MAYV_ZERO_DEATHS forces deaths to zero. They are
+# written anyway so the file documents every column the hypercube consumed.
+# R0_scenario is recorded because the untagged results file is whichever scenario ran last.
+{
+  mcols <- function(m, stem) setNames(as.data.frame(m), sprintf("%s_%d", stem, seq_len(ncol(m))))
+  v <- as.vector
+  burden_draws <- cbind(
+    data.frame(draw = seq_len(N_DRAWS), transmission_row = seq_len(N_DRAWS),
+               R0_scenario = E$R0_scenario,
+               coverage = v(cov_d), ve_cross_protection = v(veb_d), delivery = v(del_d),
+               delay_weeks = v(delay_d), hosp_rate = v(hosp_d)),
+    mcols(cfrH_d, "cfr_hosp_band"), mcols(cfrN_d, "cfr_nonhosp_band"),
+    data.frame(dw_mild_mod = v(dwMM_d), dw_severe = v(dwSV_d), dw_chronic = v(dwCH_d),
+               dur_mild_mod = v(duMM_d), dur_severe = v(duSV_d),
+               dur_subacute = v(duSB_d), dur_chronic = v(duCH_d)),
+    mcols(le_d, "life_expectancy_band"),
+    data.frame(rec_acute = v(acy_d), rec_subacute = v(sby_d), rec_chronic = v(chy_d)))
+  write.csv(burden_draws, "MAYV_ca_burden_draws.csv", row.names = FALSE)
+  file.copy("MAYV_ca_burden_draws.csv",
+            sprintf("MAYV_ca_burden_draws_%s.csv", E$R0_scenario), overwrite = TRUE)
+  cat(sprintf("Saved MAYV_ca_burden_draws.csv (%d draws x %d parameters, scenario '%s').\n",
+              nrow(burden_draws), ncol(burden_draws) - 3, E$R0_scenario))
+}
+
 saveRDS(list(
   per_draw = per_draw, averted = averted, nnv = nnv,
   attack_base = attack_base, outbreak = outbreak, p_outbreak = p_outbreak,
+  sus_pool = sus_pool, pop_total = sum(N),
   R0_fixed = E$R0_fixed, R0_sampled = TRUE, R0_lo = E$R0_lo, R0_hi = E$R0_hi,
   conditioning = "none (all draws; R0 sampled within the scenario range)",
   frac_over_legacy_thresh = frac_over_thresh,

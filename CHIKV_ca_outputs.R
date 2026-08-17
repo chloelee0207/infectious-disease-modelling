@@ -12,7 +12,7 @@
 #             (the cost layer reads only the engine .rds, and section 8 needs its
 #              per-draw direct medical costs, so costs must run before this file.)
 # ============================================================
-library(dplyr); library(tidyr); library(ggplot2); library(writexl)
+library(dplyr); library(tidyr); library(ggplot2); library(writexl); library(patchwork)
 if (!exists("fmtq")) source("ca_common.R")
 
 if (!file.exists("CHIKV_ca_engine_results.rds"))
@@ -159,11 +159,46 @@ doses_wastage <- do.call(rbind, lapply(vac_names, function(nm) {
              `wastage %` = pct3(1 - ont/del), check.names = FALSE, row.names = NULL)
 }))
 
+
+# ------------------------------------------------------------
+# Attack rates for the BASELINE (no-vaccine) arm, median (95% UI).
+# Denominator is the per-draw SUSCEPTIBLE POOL at t = 0, not the total population: prior
+# immunity is sampled, so the pool varies draw to draw and is recorded by the engine
+# (sus_pool). Both numerators are given because they answer different questions and are
+# routinely confused:
+#   infections / susceptibles   -- transmission intensity; what the model's internal
+#                                  attack_pct uses, and what final-size theory refers to
+#   symptomatic / susceptibles  -- the CLINICALLY OBSERVABLE attack rate, and the only one
+#                                  comparable with field serosurveys that counted cases
+#                                  (e.g. Belterra 1978: 807 clinically suspect cases among
+#                                  3,941 questioned = 20.5%)
+# Computed per draw and then summarised, so the UI carries the joint uncertainty in both
+# the numerator and the susceptible denominator rather than dividing two medians.
+# ------------------------------------------------------------
+stopifnot(!is.null(G$sus_pool))          # re-run CHIKV_ca_engine.R if this fails
+.bpd <- bmat[["No vaccine (baseline)"]]
+attack_rates <- data.frame(
+  measure = c("Baseline immunity (% of population)",
+              "Infections / susceptibles (%)", "Symptomatic / susceptibles (%)",
+              "Susceptible pool at t = 0", "Total population"),
+  baseline = c(
+    # POPULATION-WEIGHTED for CHIKV: immunity is age-dependent (truncated catalytic,
+    # 1 - exp(-FOI * min(age, 12))), so this is the share of the WHOLE population immune,
+    # not a single per-person probability. Derived as 1 - sus_pool/pop_total so it is
+    # guaranteed consistent with the denominator used by the two attack rates above.
+    fmtq(100 * (1 - G$sus_pool / G$pop_total), 1),
+    fmtq(100 * .bpd[, "infections"]  / G$sus_pool, 1),
+    fmtq(100 * .bpd[, "symptomatic"] / G$sus_pool, 1),
+    fmtq(G$sus_pool, 0),
+    format(round(G$pop_total), big.mark = ",")),
+  row.names = NULL)
+
 sheets <- list(notes = notes, baseline_true_reported = base_tbl,
                vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
                averted_per_100k_doses = mc_per100k, doses_wastage = doses_wastage,
                scenario_totals = scenario_totals, weekly_reported = weekly_reported,
-               burden_audit = G$burden_audit, burden_audit_by_age = G$burden_audit_by_age)
+               burden_audit = G$burden_audit, burden_audit_by_age = G$burden_audit_by_age,
+               attack_rates = attack_rates)
 write_xlsx(sheets, "CHIKV_ca_vacc_outputs.xlsx")
 cat("Wrote CHIKV_ca_vacc_outputs.xlsx  (sheets:", paste(names(sheets), collapse=", "), ")\n")
 
@@ -259,6 +294,112 @@ p_fit <- ggplot(pred, aes(week, med)) +
        caption = "Dots = observed; line = median, band = 95% UI over LHS draws; dashed = year boundary") +
   theme_bw(11) + theme(plot.title = element_text(face = "bold"), panel.grid.minor = element_blank())
 print(p_fit); ggsave("CHIKV_ca_vacc_fit_observed.png", p_fit, width = 9, height = 5, dpi = 120)
+
+# ------------------------------------------------------------
+# 5b. Two-panel fit figure: (a) reported cases, (b) inferred infections.
+#
+# Panel (a) is the calibration target -- what surveillance actually saw, so the observed
+# dots belong here and nowhere else. Panel (b) is the same draws expressed as INFECTIONS,
+# which is a model inference with no observable counterpart: reported = rho * symptomatic,
+# so (b) is larger than (a) by the reporting rate AND the symptomatic fraction together.
+#
+# Two panels rather than one with two y-axes: the series differ by ~2 orders of magnitude
+# (peak 675 reported vs 5,282 infections) and a second axis would invite a slope comparison
+# that means nothing. Both panels share one x scale and one colour, so they read as two
+# views of a single fit rather than two results.
+#
+# wk_inf holds per-draw weekly NEW infections; its row sums reproduce the `infections`
+# outcome exactly (65,090 median), so the panels are consistent with Table 2 by construction.
+# ------------------------------------------------------------
+iq   <- apply(wk_inf[["No vaccine (baseline)"]], 2, quantile, c(.025, .5, .975), na.rm = TRUE)
+infd <- data.frame(week = 1:T_sim, lo = iq[1, ], med = iq[2, ], hi = iq[3, ])
+
+# beta(t) for panel A. The engine RESAMPLES the transmission ensemble with replacement,
+# so quoting the raw ensemble here would show a slightly different draw set from the one
+# panels B and C are built on. rho_i = E$rho[t_idx] and the rho draws are unique, so the
+# engine's exact t_idx is recoverable and panel A becomes draw-for-draw consistent with
+# the other two. Falls back to the raw ensemble if that ever stops being true.
+BETA_CAP <- 4                     # see below
+E_lhs <- readRDS("CHIKV_ca_lhs_ensemble.rds")
+t_idx <- match(rho_i, E_lhs$rho)
+if (anyNA(t_idx)) { warning("t_idx not recoverable from rho_i; using the raw LHS ensemble.")
+                    beta_draws <- E_lhs$beta } else beta_draws <- E_lhs$beta[t_idx, ]
+bq   <- apply(beta_draws, 2, quantile, c(.025, .5, .975), na.rm = TRUE)
+betd <- data.frame(week = 1:T_sim, lo = bq[1, ], med = bq[2, ], hi = bq[3, ])
+
+FIT_LINE <- "#2166ac"; FIT_BAND <- "#4393c3"
+LAB_FIT  <- "Model fit (median, 95% UI)"; LAB_OBS <- "Observed reported cases"
+
+# Font sizes, in points -- EDIT HERE. Set to the theme_bw(11) defaults this script's other
+# figures inherit, so this panel pair matches them rather than defining its own scale.
+FS_AB <- list(base = 11, axis_title = 11, axis_text = 9, legend = 9, tag = 13)
+
+# Shared skeleton so the two panels cannot drift apart in scale, grid or year marker.
+fit_panel <- function(d, ytitle) {
+  ggplot(d, aes(week, med)) +
+    geom_vline(xintercept = year_break, linetype = "dashed", colour = "grey60") +
+    geom_ribbon(aes(ymin = lo, ymax = hi), fill = FIT_BAND, alpha = .20) +
+    geom_line(aes(colour = LAB_FIT), linewidth = .9) +
+    scale_x_continuous(breaks = x_breaks, labels = x_labs) +
+    scale_y_continuous(labels = scales::comma, expand = expansion(mult = c(.02, .06))) +
+    scale_colour_manual(values = setNames(FIT_LINE, LAB_FIT), name = NULL) +
+    labs(x = "Week", y = ytitle) +
+    theme_bw(FS_AB$base) +
+    theme(panel.grid.minor = element_blank(),
+          axis.title       = element_text(size = FS_AB$axis_title),
+          axis.text        = element_text(size = FS_AB$axis_text),
+          legend.text      = element_text(size = FS_AB$legend),
+          legend.position  = "bottom")
+}
+
+# The panels are identified by the bold A / B / C tags, matching combined_outputs.R; a
+# centred title over each would repeat what the y-axis already says.
+#
+# A  beta(t), the fitted weekly transmission rate -- the quantity the spline estimates.
+# B  reported cases, the calibration target (the only panel with observed data).
+# C  infections, the model's inference from the same draws.
+# Read left to right, top to bottom: what was estimated, what it was fitted to, what it
+# implies. Only B carries dots, because reported cases are the only observable of the three.
+#
+# A's y-axis is capped at BETA_CAP. The upper band runs to 8.5 in the closing weeks, when
+# susceptible depletion leaves beta barely identified; uncapped, that single excursion
+# flattens the median curve and the epidemic-peak rise into an unreadable line. 7 of 52
+# weeks are clipped. Same choice, and same cap, as CHIKV_ca_prop_beta_zoom.png -- state it
+# in the figure legend.
+pA <- fit_panel(betd, expression(paste("Weekly transmission rate ", beta[t]))) +
+  coord_cartesian(ylim = c(0, BETA_CAP)) + guides(colour = "none")
+pB <- fit_panel(pred, "Weekly no. of reported cases") +
+  geom_point(data = obs, aes(week, cases, shape = LAB_OBS), inherit.aes = FALSE,
+             size = 1.4, colour = "grey15") +
+  scale_shape_manual(values = setNames(16, LAB_OBS), name = NULL)
+# A and C carry no observed data and repeat B's fit encoding, so their keys are suppressed
+# and the single collected legend serves all three.
+pC <- fit_panel(infd, "Weekly no. of infections") + guides(colour = "none")
+
+# A top-left, B top-right, C bottom-left; "#" leaves the fourth cell empty.
+# One explicit design rather than nested rows -- (pA + pB) / (pC + plot_spacer()) lays each
+# row out independently, so C ends up wider than A because the spacer has no axis to make
+# room for. A single design grid shares one column layout and keeps A and C the same width.
+p_ab <- pA + pB + pC +
+  patchwork::plot_layout(design = "AB\nC#", guides = "collect") +
+  patchwork::plot_annotation(tag_levels = "A") &
+  theme(plot.tag = element_text(face = "bold", size = FS_AB$tag),
+        legend.position = "bottom", legend.justification = "center")
+
+# 11 x 8.6 keeps each panel close to the plot-area proportions of this script's
+# single-panel figures (8-9 x 5), so the text reads at the same relative size.
+# Same three-file pattern as save_fig() in combined_outputs.R: a working PNG, a 600 dpi
+# PNG for raster-only journals, and the vector PDF that should be preferred where accepted.
+ggsave("CHIKV_ca_fit_cases_infections.png",        p_ab, width = 11, height = 8.6, dpi = 300)
+ggsave("CHIKV_ca_fit_cases_infections_600dpi.png", p_ab, width = 11, height = 8.6, dpi = 600)
+ggsave("CHIKV_ca_fit_cases_infections.pdf",        p_ab, width = 11, height = 8.6)
+cat(sprintf(paste0("Saved CHIKV_ca_fit_cases_infections.png/.pdf -- peak beta %.2f (week %d), ",
+                   "peak reported %s (week %d), peak infections %s (week %d); ",
+                   "%d of %d weeks clipped by the beta cap of %g.\n"),
+            max(betd$med), which.max(betd$med),
+            format(round(max(pred$med)), big.mark = ","), which.max(pred$med),
+            format(round(max(infd$med)), big.mark = ","), which.max(infd$med),
+            sum(betd$hi > BETA_CAP), nrow(betd), BETA_CAP))
 
 # ------------------------------------------------------------
 # 6. DALYs: workbook + composition and averted figures.

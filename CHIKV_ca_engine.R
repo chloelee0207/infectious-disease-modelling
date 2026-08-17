@@ -282,10 +282,18 @@ wk_inf   <- setNames(lapply(scen_names, function(x) matrix(NA_real_, N_DRAWS, T_
 doses_deliv    <- setNames(lapply(scen_names, function(x) numeric(N_DRAWS)), scen_names)
 doses_ontarget <- setNames(lapply(scen_names, function(x) numeric(N_DRAWS)), scen_names)
 
+# Susceptible pool at t = 0, per draw. Prior immunity is age-dependent (catalytic
+# 1 - exp(-FOI * exposure_age)) and FOI is sampled, so the denominator of any attack rate
+# varies draw to draw. Recorded here so the outputs layer never has to re-derive it from
+# the ensemble -- that would reintroduce the cross-file staleness risk the costs/outputs
+# guard exists to prevent.
+sus_pool <- numeric(N_DRAWS)
+
 cat(sprintf("Running %d draws x %d scenarios...\n", N_DRAWS, length(scen)))
 for (i in 1:N_DRAWS) {
   ti <- t_idx[i]
   Rimm_i <- draw_immunity(E$foi[ti]); I0_i <- draw_I0(E$foi[ti], E$rho[ti], E$gamma[ti], E$prop_symp[ti])
+  sus_pool[i] <- sum(N * (1 - Rimm_i))
   cfr_j  <- (hosp_d[i]*cfrH_d[i, ] + (1-hosp_d[i])*cfrN_d[i, ])[age_to_band]
   for (s in scen) {
     if (s$type == "base") { covv <- 0; vi <- 0; vb <- 0; st <- start_s3 }
@@ -359,8 +367,39 @@ RES_FILE <- {
     sprintf("CHIKV_ca_engine_results_cov%03d.rds", round(1000*CHIKV_FIXED_COV))
   } else "CHIKV_ca_engine_results.rds"
 }
+# ---- Stage-2 replication file: the per-draw BURDEN parameters -----------------------
+# Stage 1 (transmission) is written by CHIKV_ca_lhs.R as CHIKV_ca_lhs_draws.csv. This is
+# its stage-2 counterpart, so the two files together contain every sampled input.
+# `transmission_row` is the key that joins them: it records which stage-1 draw each burden
+# draw was paired with (the engine resamples the ensemble WITH REPLACEMENT, so rows repeat
+# and roughly a third never appear). Without it the pairing is unrecoverable from the files.
+# Chronic recovery is stored as the SUM of the 6m/12m/30m rows, which is the quantity the
+# model actually uses; nextU() returns Nx1 matrices, hence as.vector().
+# Written only on the MAIN run, so a fixed-coverage or dose-constrained scenario can never
+# overwrite the file the manuscript cites.
+if (identical(RES_FILE, "CHIKV_ca_engine_results.rds")) {
+  mcols <- function(m, stem) setNames(as.data.frame(m), sprintf("%s_%d", stem, seq_len(ncol(m))))
+  v <- as.vector
+  burden_draws <- cbind(
+    data.frame(draw = seq_len(N_DRAWS), transmission_row = t_idx,
+               coverage = v(cov_d), ve = v(ve_d), delivery = v(deliv_d),
+               delay_weeks = v(delay_d), hosp_rate = v(hosp_d)),
+    mcols(cfrH_d, "cfr_hosp_band"), mcols(cfrN_d, "cfr_nonhosp_band"),
+    data.frame(dw_mild_mod = v(dwMM_d), dw_severe = v(dwSV_d), dw_chronic = v(dwCH_d),
+               dur_mild_mod = v(duMM_d), dur_severe = v(duSV_d),
+               dur_subacute = v(duSB_d), dur_chronic = v(duCH_d)),
+    mcols(le_d, "life_expectancy_band"),
+    data.frame(rec_acute_u40 = v(acy_d), rec_acute_o40 = v(aco_d),
+               rec_subacute_u40 = v(sby_d), rec_subacute_o40 = v(sbo_d),
+               rec_chronic_u40 = v(chy_d), rec_chronic_o40 = v(cho_d)))
+  write.csv(burden_draws, "CHIKV_ca_burden_draws.csv", row.names = FALSE)
+  cat(sprintf("Saved CHIKV_ca_burden_draws.csv (%d draws x %d parameters + draw/transmission_row).\n",
+              nrow(burden_draws), ncol(burden_draws) - 2))
+}
+
 saveRDS(list(
   per_draw = per_draw, averted = averted, nnv = nnv,
+  sus_pool = sus_pool, pop_total = sum(N),
   wk_symp = wk_symp, wk_inf = wk_inf, rho_i = rho_i,
   agg_burden = agg_burden, agg_averted = agg_averted, agg_nnv = agg_nnv,
   scen = scen, scen_names = scen_names, vac_names = vac_names,

@@ -29,7 +29,8 @@
 #             MAYV_ca_engine.R  -> MAYV_ca_costs.R  -> MAYV_ca_outputs.R
 #             (CHIKV_ca_owsa.R, MAYV_ca_owsa.R for figure 3)  ->  this file
 # ============================================================
-suppressMessages({library(dplyr); library(ggplot2); library(patchwork); library(writexl)})
+suppressMessages({library(dplyr); library(ggplot2); library(patchwork); library(writexl)
+                  library(readxl)})
 
 # Which MAYV scenario to show. Reads the scenario-TAGGED results file so the figures
 # never depend on which scenario happened to run last.
@@ -526,3 +527,91 @@ writexl::write_xlsx(list(averted_per_100k_doses = per100k_tbl, notes = p100_note
                     "combined_per_100k_doses.xlsx")
 cat("Saved combined_per_100k_doses.xlsx (CHIKV beside MAYV, per 100,000 doses).\n")
 print(per100k_tbl, row.names = FALSE)
+
+
+# ------------------------------------------------------------
+# 6. Proportion still symptomatic at three months -- supplementary table.
+#
+# This is a PARAMETER-level table, not a Caldas Novas result: it describes the severity
+# inputs the two models draw from, so it carries no dependence on outbreak size, age mix
+# or vaccination. Sourced from disease_progression.xlsx so it can never drift from what
+# the engines actually sample.
+#
+# The comparable quantity across the two pathogens is the proportion of symptomatic cases
+# STILL SYMPTOMATIC AT ~3 MONTHS:
+#   Chikungunya  1 - (recovered by 14 d) - (recovered 14 d - 90 d) = sum of the 6 m, 12 m
+#                and 30 m rows of O'Driscoll et al. 2021, whose five rows are MARGINAL
+#                shares of one cohort (they sum to 1.000 age-wise) and are renormalised
+#                to sum to exactly 1, as in the engines.
+#   Mayaro       11/16 with arthralgia at the 3-month visit (Halsey et al. 2015), the
+#                third component of Dirichlet(1, 4, 11); its exact marginal is Beta(11, 5).
+#
+# Summed PER DRAW, never by adding medians: medians are not additive, and adding the three
+# components' UI endpoints would assume they move in lockstep, giving an interval ~1.6x too
+# wide (the three chikungunya Betas are drawn independently, so variances add, not SDs).
+# Means happen to be additive, and these Betas are near-symmetric, so summing the medians
+# would be within ~0.15% here -- but the interval would not be.
+# ------------------------------------------------------------
+source("ca_common.R")
+dpar <- load_daly_params()
+set.seed(20260815); N_MC <- 2e5
+rb <- function(p) rbeta(N_MC, p$a, p$b)
+
+chronic_share <- function(p14, p90, p6, p12, p30) {
+  a <- rb(p14); s <- rb(p90); ch <- rb(p6) + rb(p12) + rb(p30)
+  tot <- a + s + ch                       # renormalise exactly as the engines do
+  list(acute = a/tot, subacute = s/tot, chronic = ch/tot, raw_total = tot)
+}
+cs_y <- chronic_share(dpar$p14_y, dpar$p90_y, dpar$p6_y, dpar$p12_y, dpar$p30_y)
+cs_o <- chronic_share(dpar$p14_o, dpar$p90_o, dpar$p6_o, dpar$p12_o, dpar$p30_o)
+mv_chronic <- rbeta(N_MC, 11, 5)          # exact marginal of Dirichlet(1, 4, 11)
+
+pc <- function(v, d = 1) { q <- quantile(v, c(.5, .025, .975))
+  sprintf("%.*f%% (%.*f-%.*f)", d, 100*q[1], d, 100*q[2], d, 100*q[3]) }
+
+chronic_tbl <- data.frame(
+  pathogen  = c("Chikungunya", "Chikungunya", "Mayaro"),
+  age_group = c("< 40 years", ">= 40 years", "All ages (not stratified)"),
+  still_symptomatic_3m = c(pc(cs_y$chronic), pc(cs_o$chronic), pc(mv_chronic)),
+  distribution = c("Sum of Beta(799.3, 3307.0), Beta(77.6, 836.7) and Beta(7.6, 1075.0), renormalised",
+                   "Sum of Beta(5998.9, 21654.9), Beta(184.7, 1216.1) and Beta(15.8, 516.3), renormalised",
+                   "Beta(11, 5), the chronic margin of Dirichlet(1, 4, 11)"),
+  source = c("O'Driscoll et al. 2021 IJID (pooled cohorts)",
+             "O'Driscoll et al. 2021 IJID (pooled cohorts)",
+             "Halsey et al. 2015 (Peru, n = 16)"),
+  stringsAsFactors = FALSE)
+
+# Full three-phase partition, for readers who want to see that the rows sum to 1.
+partition_tbl <- data.frame(
+  pathogen  = c(rep("Chikungunya", 2), "Mayaro"),
+  age_group = c("< 40 years", ">= 40 years", "All ages (not stratified)"),
+  resolved_by_14d      = c(pc(cs_y$acute),    pc(cs_o$acute),    pc(rbeta(N_MC, 1, 15))),
+  resolved_14d_to_3m   = c(pc(cs_y$subacute), pc(cs_o$subacute), pc(rbeta(N_MC, 4, 12))),
+  still_symptomatic_3m = c(pc(cs_y$chronic),  pc(cs_o$chronic),  pc(mv_chronic)),
+  stringsAsFactors = FALSE)
+
+chronic_notes <- data.frame(item = c(
+  "Quantity", "Chikungunya derivation", "Mayaro derivation", "Marginal, not conditional",
+  "Why medians are not summed", "Interval widths are not comparable",
+  "Mayaro is prevalence, not survival", "Mayaro acute bin", "No pooled value"),
+  detail = c(
+  "Proportion of symptomatic cases still reporting arthralgia at approximately three months from symptom onset. Median (95% UI) over 200,000 Monte Carlo draws.",
+  "One minus the cumulative probability of recovery by 90 days, i.e. the sum of the 6-month, 12-month and 30-month recovery rows, renormalised so the three phases sum to 1. The five O'Driscoll rows sum to 1.000 (<40) and 1.000 (>=40) using the published Beta hyperparameters, confirming they partition one cohort.",
+  "Proportion with arthralgia at the 3-month visit, 11 of 16 patients. Drawn as the chronic component of a Dirichlet(1, 4, 11) so the three phases stay correlated and sum to 1 in every draw; the exact marginal is Beta(11, 5).",
+  "Despite the 'within X after Y period' wording of the source tables, these are marginal shares of recovery time, not conditional recovery probabilities. Reading row 2 as conditional on not having recovered in row 1 gives a different number (26.7% rather than 23.9% for Mayaro).",
+  "Components are summed per draw, not by adding medians. Medians are not additive in general; adding the three components' UI endpoints would assume perfect positive correlation and yields an interval about 1.6 times too wide, since the chikungunya Betas are drawn independently.",
+  "The chikungunya intervals are narrow because O'Driscoll's Beta hyperparameters encode very large pooled sample sizes; they describe precision in the source meta-analysis, not transportability to Caldas Novas. The Mayaro interval reflects n = 16. The widths differ by roughly 17-fold and should not be read as relative confidence.",
+  "Halsey reports arthralgia prevalence falling to 3/16 at day 20 and rising to 11/16 at 3 months, a biphasic pattern the authors treat as real. Recovery is therefore not absorbing and the 3-month figure is a POINT PREVALENCE, not the probability of never having recovered.",
+  "Halsey's first follow-up visit was day 20, so the 14-day boundary was never observed. The acute share is 'no arthralgia at the acute visit' (1 of 16), which is why it is far below the chikungunya values.",
+  "No age-pooled chikungunya value is given: the source stratifies at 40 years and a pooled figure would depend on the age distribution of symptomatic cases, making it a model output rather than a parameter."),
+  stringsAsFactors = FALSE)
+
+write_xlsx(list(still_symptomatic_3m = chronic_tbl,
+                full_partition       = partition_tbl,
+                notes                = chronic_notes),
+           "combined_chronic_share.xlsx")
+cat("\nSaved combined_chronic_share.xlsx (proportion still symptomatic at 3 months).\n")
+print(chronic_tbl[, 1:3], row.names = FALSE)
+cat("\nFull partition:\n"); print(partition_tbl, row.names = FALSE)
+cat(sprintf("\nO'Driscoll rows sum to %.4f (<40) and %.4f (>=40) before renormalisation.\n",
+            median(cs_y$raw_total), median(cs_o$raw_total)))

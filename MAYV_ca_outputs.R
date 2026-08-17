@@ -151,10 +151,43 @@ doses_wastage <- data.frame(
   `wastage %`                   = fmtpct(1 - G$doses_ontarget / G$doses_deliv),
   check.names = FALSE, row.names = NULL)
 
+
+# ------------------------------------------------------------
+# Attack rates for the BASELINE (no-vaccine) arm, median (95% UI).
+# Denominator is the per-draw SUSCEPTIBLE POOL at t = 0, not the total population: prior
+# immunity is sampled, so the pool varies draw to draw and is recorded by the engine
+# (sus_pool). Both numerators are given because they answer different questions and are
+# routinely confused:
+#   infections / susceptibles   -- transmission intensity; what the model's internal
+#                                  attack_pct uses, and what final-size theory refers to
+#   symptomatic / susceptibles  -- the CLINICALLY OBSERVABLE attack rate, and the only one
+#                                  comparable with field serosurveys that counted cases
+#                                  (e.g. Belterra 1978: 807 clinically suspect cases among
+#                                  3,941 questioned = 20.5%)
+# Computed per draw and then summarised, so the UI carries the joint uncertainty in both
+# the numerator and the susceptible denominator rather than dividing two medians.
+# ------------------------------------------------------------
+stopifnot(!is.null(G$sus_pool))          # re-run MAYV_ca_engine.R if this fails
+.sus <- G$sus_pool[ok]
+attack_rates <- data.frame(
+  measure = c("Baseline immunity (% of population)",
+              "Infections / susceptibles (%)", "Symptomatic / susceptibles (%)",
+              "Susceptible pool at t = 0", "Total population"),
+  baseline = c(
+    # FLAT across ages for MAYV: one sampled seroprevalence per draw, applied to every age
+    # band. Derived as 1 - sus_pool/pop_total so it is guaranteed consistent with the
+    # denominator used by the two attack rates above rather than re-read from the ensemble.
+    fmtq(100 * (1 - .sus / G$pop_total), 1),
+    fmtq(100 * base_pd[ok, "infections"]  / .sus, 1),
+    fmtq(100 * base_pd[ok, "symptomatic"] / .sus, 1),
+    fmtq(.sus, 0),
+    format(round(G$pop_total), big.mark = ",")),
+  row.names = NULL)
+
 write_xlsx(list(notes = notes, baseline_true_reported = base_tbl,
                 vaccinated_true_reported = vtr, averted_MC_95UI = mc_tbl,
                 averted_per_100k_doses = mc_per100k, doses_wastage = doses_wastage,
-                scenario_totals = scenario_totals),
+                scenario_totals = scenario_totals, attack_rates = attack_rates),
            "MAYV_ca_vacc_outputs.xlsx")
 
 # ============================================================

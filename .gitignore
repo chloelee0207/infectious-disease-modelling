@@ -26,6 +26,16 @@ Archive/
 # ---- Excel/LibreOffice lock files ----
 ~$*
 
+# ---- REPLICATION data: the sampled parameter values behind the published estimates ----
+# Two stages per pathogen. Stage 1 = the transmission LHS (*_ca_lhs.R); stage 2 = the
+# burden LHS drawn inside the engine. The CHIKV pair joins on `transmission_row`, since
+# that engine resamples the stage-1 ensemble with replacement; for MAYV the pairing is 1:1.
+# Scenario-tagged copies (e.g. MAYV_ca_burden_draws_high.csv) stay ignored.
+!CHIKV_ca_lhs_draws.csv
+!CHIKV_ca_burden_draws.csv
+!MAYV_ca_lhs_draws.csv
+!MAYV_ca_burden_draws.csv
+
 # ---- INPUT data: hand-maintained source parameters, MUST be tracked ----
 # (the *.xlsx / *.csv rules above ignore generated outputs; these are exceptions)
 !Abad-Franch_seroprevalence.xlsx
