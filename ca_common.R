@@ -38,6 +38,12 @@ qs <- function(v) as.numeric(quantile(v, c(.5, .025, .975), na.rm = TRUE))
 # not clobber an age_weight the engine already set.
 if (!exists("age_weight")) age_weight <- 1
 
+# Folder holding the per-draw replication CSVs (the sampled LHS parameter values published
+# with the manuscript). Kept in one place so the repo root stays readable. Writers call
+# dir.create() immediately before saving: git cannot track an empty directory, so the
+# folder must be created on demand rather than committed and relied upon.
+DRAWS_DIR <- "lhs_draws"
+
 # Burden extractor: infections, symptomatic, hospitalisations, deaths.
 # hr (hosp rate) and cv (CFR-by-age) default to the means but accept per-draw values.
 # w re-weights the age distribution for DEATHS only, redistributing symptomatic cases

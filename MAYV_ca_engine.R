@@ -464,11 +464,13 @@ base_curve_plot(wk_base, draw_set, "Predicted symptomatic cases (no vaccine)",
                dur_subacute = v(duSB_d), dur_chronic = v(duCH_d)),
     mcols(le_d, "life_expectancy_band"),
     data.frame(rec_acute = v(acy_d), rec_subacute = v(sby_d), rec_chronic = v(chy_d)))
-  write.csv(burden_draws, "MAYV_ca_burden_draws.csv", row.names = FALSE)
-  file.copy("MAYV_ca_burden_draws.csv",
-            sprintf("MAYV_ca_burden_draws_%s.csv", E$R0_scenario), overwrite = TRUE)
-  cat(sprintf("Saved MAYV_ca_burden_draws.csv (%d draws x %d parameters, scenario '%s').\n",
-              nrow(burden_draws), ncol(burden_draws) - 3, E$R0_scenario))
+  dir.create(DRAWS_DIR, showWarnings = FALSE)
+  bd_path <- file.path(DRAWS_DIR, "MAYV_ca_burden_draws.csv")
+  write.csv(burden_draws, bd_path, row.names = FALSE)
+  file.copy(bd_path, file.path(DRAWS_DIR, sprintf("MAYV_ca_burden_draws_%s.csv", E$R0_scenario)),
+            overwrite = TRUE)
+  cat(sprintf("Saved %s (%d draws x %d parameters, scenario '%s').\n",
+              bd_path, nrow(burden_draws), ncol(burden_draws) - 3, E$R0_scenario))
 }
 
 saveRDS(list(

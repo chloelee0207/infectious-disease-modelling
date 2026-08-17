@@ -413,11 +413,14 @@ ggsave("MAYV_ca_lhs_infections.png", p_inf, width = 8, height = 4.5, dpi = 120)
 # 10. Save per-draw table + ensemble (mirrors CHIKV_ca_lhs_ensemble.rds shape so a
 #     future MAYV vaccine/engine variant can iterate over these draws directly)
 # ------------------------------------------------------------
+# This script does not source ca_common.R, so DRAWS_DIR is defined here if absent.
+if (!exists("DRAWS_DIR")) DRAWS_DIR <- "lhs_draws"
+dir.create(DRAWS_DIR, showWarnings = FALSE)
 write.csv(data.frame(draw = 1:n, R0 = R0v, gamma = gam, sigma = sig, rho = rho, prop_symp = psy,
                      immune_frac = imm, total_infections = tot_inf, total_reported = tot_rep,
                      peak_reported_wk = peak_rep_wk, attack_pct = attack,
                      finite = (seq_len(n) %in% ok)),
-          "MAYV_ca_lhs_draws.csv", row.names = FALSE)
+          file.path(DRAWS_DIR, "MAYV_ca_lhs_draws.csv"), row.names = FALSE)
 
 mayv_lhs_ensemble <- list(
   rep = rep_mat[ok, , drop = FALSE], inf = inf_mat[ok, , drop = FALSE],

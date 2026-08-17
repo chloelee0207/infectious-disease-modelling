@@ -294,11 +294,14 @@ ggsave("CHIKV_ca_prop_infections.png",
 
 # loglik/AIC/BIC are saved per draw as well as summarised above, so the fit criterion can
 # be audited -- e.g. what retaining the sets that fail it would do to the reported fit.
+dir.create(DRAWS_DIR, showWarnings = FALSE)
 write.csv(data.frame(draw=1:n, FOI=foi, gamma=gam, sigma=sig, rho=rho, prop_symp=psy,
                      immune_pct=immune, R0_peak=R0peak, attack_pct=attack, total_reported=totrep,
                      loglik=loglik, AIC=aic_d, BIC=bic_d,
-                     feasible=(seq_len(n) %in% ok)), "CHIKV_ca_lhs_draws.csv", row.names=FALSE)
-cat("\nSaved CHIKV_ca_prop_beta.png, CHIKV_ca_prop_beta_zoom.png, CHIKV_ca_prop_R0.png, CHIKV_ca_prop_infections.png, CHIKV_ca_lhs_draws.csv\n")
+                     feasible=(seq_len(n) %in% ok)),
+          file.path(DRAWS_DIR, "CHIKV_ca_lhs_draws.csv"), row.names=FALSE)
+cat("\nSaved CHIKV_ca_prop_beta.png, CHIKV_ca_prop_beta_zoom.png, CHIKV_ca_prop_R0.png,",
+    "CHIKV_ca_prop_infections.png,", file.path(DRAWS_DIR, "CHIKV_ca_lhs_draws.csv"), "\n")
 
 # ------------------------------------------------------------
 # 9. Export the feasible-draw ensemble for the engine.

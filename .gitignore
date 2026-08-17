@@ -53,10 +53,10 @@ population_MAYV.xlsx
 # Leading "/" anchors these to the repo root ON PURPOSE: without it the negation matches
 # the basename at any depth, which would un-ignore the stale archived copies sitting in
 # Outputs_*/ and publish snapshots that no longer match the current model.
-!/CHIKV_ca_lhs_draws.csv
-!/CHIKV_ca_burden_draws.csv
-!/MAYV_ca_lhs_draws.csv
-!/MAYV_ca_burden_draws.csv
+!/lhs_draws/CHIKV_ca_lhs_draws.csv
+!/lhs_draws/CHIKV_ca_burden_draws.csv
+!/lhs_draws/MAYV_ca_lhs_draws.csv
+!/lhs_draws/MAYV_ca_burden_draws.csv
 
 # ---- INPUT data: hand-maintained source parameters, MUST be tracked ----
 # (the *.xlsx / *.csv rules above ignore generated outputs; these are exceptions)

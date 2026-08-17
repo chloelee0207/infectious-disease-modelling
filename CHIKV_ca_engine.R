@@ -392,9 +392,11 @@ if (identical(RES_FILE, "CHIKV_ca_engine_results.rds")) {
     data.frame(rec_acute_u40 = v(acy_d), rec_acute_o40 = v(aco_d),
                rec_subacute_u40 = v(sby_d), rec_subacute_o40 = v(sbo_d),
                rec_chronic_u40 = v(chy_d), rec_chronic_o40 = v(cho_d)))
-  write.csv(burden_draws, "CHIKV_ca_burden_draws.csv", row.names = FALSE)
-  cat(sprintf("Saved CHIKV_ca_burden_draws.csv (%d draws x %d parameters + draw/transmission_row).\n",
-              nrow(burden_draws), ncol(burden_draws) - 2))
+  dir.create(DRAWS_DIR, showWarnings = FALSE)
+  bd_path <- file.path(DRAWS_DIR, "CHIKV_ca_burden_draws.csv")
+  write.csv(burden_draws, bd_path, row.names = FALSE)
+  cat(sprintf("Saved %s (%d draws x %d parameters + draw/transmission_row).\n",
+              bd_path, nrow(burden_draws), ncol(burden_draws) - 2))
 }
 
 saveRDS(list(
