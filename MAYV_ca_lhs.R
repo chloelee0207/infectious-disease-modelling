@@ -186,7 +186,21 @@ row_for <- function(k) cal[grepl(k, cal$Parameter, ignore.case = TRUE), ][1, ]
 sd_of   <- function(r) (r[["95% UI upper"]] - r[["95% UI lower"]]) / (2*1.96)
 
 gr <- row_for("gamma"); sr <- row_for("sigma")
-g_m <- gr$Median; g_sd <- sd_of(gr)            # gamma is a RATE (per week)
+# GAMMA is a RATE (per week), sampled LOGNORMAL. The evidence is about a DURATION -- MAYV
+# symptoms resolve in about 7 days (5-9) -- so the distribution belongs on the period, and a
+# lognormal is the natural family: strictly positive, right-skewed, reproduces its endpoints
+# exactly. Because the reciprocal of a lognormal is lognormal, period ~ LN(m, s) is the same
+# as rate ~ LN(-m, s), so the workbook stores the RATE directly and no inversion is needed.
+# This replaces a Normal(1.0, 0.17857) on the rate, which had two defects: it put mass on
+# gamma <= 0 (an impossible negative recovery rate) and, once inverted, gave a fat right tail
+# on the period -- 15.6 d at the 99.9th percentile, and 0.26% of draws above 14 d. It also
+# could not reproduce the stated 0.7-1.4 interval, which is asymmetric about 1.0, and so
+# actually sampled 0.65-1.35. The lognormal fixes all three at an unchanged median of 1.0.
+# Duration of illness for mild/moderate Mayaro in disease_progression.xlsx carries the SAME
+# sdlog, so the infectious period and the acute illness duration cannot drift apart.
+g_ml <- as.numeric(gr[["Value 1"]]); g_sl <- as.numeric(gr[["Value 2"]])
+stopifnot(tolower(gr[["Uncertainty distribution"]]) == "lognormal", is.finite(g_ml), is.finite(g_sl))
+g_m <- exp(g_ml)                               # median rate, for the deterministic base run
 p_m <- sr$Median; p_sd <- sd_of(sr)            # sigma stored as a PERIOD (weeks) -> invert
 
 # LATENT-PERIOD SCENARIO. Base case = the workbook value: Caicedo et al. 2021's intrinsic
@@ -207,16 +221,102 @@ p_m <- sr$Median; p_sd <- sd_of(sr)            # sigma stored as a PERIOD (weeks
 # ~2.71 wk, so far fewer generations fit inside the supercritical season before the dry-
 # season tail collapses transmission, and the outbreak is ~50x smaller at the same R0.
 # Latent period and R0 are therefore partly interchangeable in setting outbreak size.
-if (!exists("MAYV_LATENT")) MAYV_LATENT <- "caicedo3d"    # "caicedo3d" | "long12d"
-stopifnot(MAYV_LATENT %in% c("caicedo3d", "long12d"))
-# Lognormal on the PERIOD, fitted to the workbook's 95% UI endpoints (weeks).
-lat_lo <- sr$`95% UI lower`; lat_hi <- sr$`95% UI upper`
-if (MAYV_LATENT == "long12d") { lat_lo <- 11.31/7; lat_hi <- 12.69/7 }  # pre-2026-07 12 d assumption
-lat_ml <- (log(lat_lo) + log(lat_hi)) / 2
-lat_sl <- (log(lat_hi) - log(lat_lo)) / (2 * 1.96)
-p_m <- exp(lat_ml)                              # median period, weeks
-cat(sprintf("Latent period '%s': lognormal(meanlog %.6f, sdlog %.6f) -> median %.4f wk (%.2f d), 95%% UI %.2f-%.2f d\n",
-            MAYV_LATENT, lat_ml, lat_sl, p_m, 7*p_m, 7*lat_lo, 7*lat_hi))
+# Scenario table. "cdc1_14" is the base case and matches the workbook row; the other two
+# are sensitivities. dist matters as much as the bounds: over a range spanning an order of
+# magnitude the uniform and lognormal centres diverge sharply (7.5 d vs 3.7 d on 1-14),
+# which moves outbreak size ~4x, so the family is recorded explicitly rather than assumed.
+if (!exists("MAYV_LATENT")) MAYV_LATENT <- "mayv7_12"
+stopifnot(MAYV_LATENT %in% c("mayv7_12", "mayv5_7", "mayv3_11", "diagne1_6", "cdc1_14", "caicedo3d", "long12d"))
+LAT_SPEC <- list(
+  # BASE CASE. MAYV intrinsic incubation "can range from 3 to 11 days", with viraemia and
+  # symptoms "usually 5-7 days". Fitted LOGNORMAL with 3 and 11 d as the 2.5th/97.5th
+  # percentiles; the median falls out at 5.74 d and the IQR at 4.59-7.18 d, so the source's
+  # "usually 5-7 d" is REPRODUCED rather than imposed -- the two statements in that paper are
+  # consistent under a single distribution, which is the reason for preferring it.
+  # Chosen over cdc1_14 because a Uniform(1, 14) asserts that the population-MEAN latent
+  # period could be 1 day or 14 days with equal weight. That is a far stronger claim than a
+  # stated clinical range supports, and it dominated the output interval: it alone accounted
+  # for ~41% of the variance in log symptomatic cases and widened the 95% UI to 443x, versus
+  # 181x here. See MAYV_ca_owsa.R for the latent-by-source structural rows.
+  # BASE CASE. Stated incubation period of 7-12 days, taken as the 95% interval on the
+  # population MEAN and centred on its geometric mean sqrt(84) = 9.17 d -> 1.309 wk
+  # (1.000-1.714). Same convention as the CHIKV model: the interval is placed on the mean,
+  # not on between-individual variation, which the SEIR's exponential E->I waiting time
+  # already represents.
+  #   CAVEAT, recorded deliberately. The source describes this 7-12 d window as FOLLOWING
+  #   the acute viraemic phase ("a short and transient viraemia (3-4 days) ... subsequently
+  #   ... an incubation period of 7-12 days"). That inverts the usual ordering, in which
+  #   incubation precedes symptoms and viraemia, so the window may describe the interval
+  #   before chronic signs rather than classical incubation. Modelled here as the latent
+  #   (E->I) period per the study team's decision; mayv5_7 and caicedo3d are the alternatives.
+  #   NB the same sentence puts VIRAEMIA at 3-4 d. Viraemia, not symptom duration, is what
+  #   governs onward transmission, so a gamma of 3-4 d rather than 7 d would be the internally
+  #   consistent reading of this source -- see the note on the gamma row above.
+  mayv7_12  = list(dist = "lognormal", lo = 7/7,      hi = 12/7),
+  # ALTERNATIVE, and the main competing source. Diagne et al. 2020 chart the incubation
+  # period as roughly 0-6 d before symptom onset, with viral load lasting 5-7 d and fever
+  # about a week. Read as 1-6 d (an incubation of 0 is not admissible). This BARELY OVERLAPS
+  # the 7-12 d base case, so the two are not reconcilable into one prior and the disagreement
+  # is carried as a structural sensitivity row rather than averaged away.
+  #   NB the same figure CORROBORATES the gamma row: viral load 5-7 d and fever ~1 week are
+  #   consistent with an infectious period of 7 d (5.2-9.4), against the 3-4 d viraemia that
+  #   the Martins text implies.
+  diagne1_6 = list(dist = "lognormal", lo = 1/7,      hi = 6/7),
+  # ALTERNATIVE. Another source states incubation "can range from 3 to 11 days" with viraemia and
+  # symptoms "usually 5-7 days". We take the USUAL band as the 95% interval, centred on its
+  # geometric mean sqrt(35) = 5.92 d, giving 0.845 wk (0.714-1.000).
+  # WHY NOT THE FULL 3-11 RANGE. The LHS samples uncertainty in the population-MEAN latent
+  # period. A 3-11 d spread is BETWEEN-INDIVIDUAL variation in incubation time, which the
+  # SEIR's exponential E->I waiting time already represents; using it as a 95% interval on
+  # the mean double-counts that variation and overstates parameter uncertainty. This is the
+  # same convention the CHIKV model uses -- Hyolim's latent row is 0.60 wk (0.45-0.80), i.e.
+  # 4.2 d (3.15-5.6), drawn from "usually 2 to 6 days" while discarding the stated 1-12 d
+  # range for exactly this reason. Keeping the two models on one convention also keeps the
+  # MAYV/CHIKV comparison like-for-like, which is the point of the analysis.
+  # Effect: overall 95% UI on symptomatic cases narrows 178x -> 121x, and the WITHIN-scenario
+  # width (R0 held fixed) falls from 35-58x to 3-8x. See mayv3_11 for the alternative.
+  mayv5_7   = list(dist = "lognormal", lo = 5/7,      hi = 7/7),
+  # SENSITIVITY: treat the full stated 3-11 d range as the 95% interval on the mean, fitted
+  # to BOTH statements at once by least squares on the log scale: 3 and 11 d at the
+  # 2.5th/97.5th percentiles, 5 and 7 d at the quartiles. Because mean(z) = 0 for a symmetric
+  # set of standard normal quantiles, the fit is closed-form -- meanlog is the mean of the
+  # four log targets and sdlog is sum(z*y)/sum(z^2). It reproduces 3.10-10.97 d (95% UI) and
+  # 4.69-7.25 d (IQR), so neither statement is discarded. The median lands at 5.83 d, NOT the
+  # 6.0 d arithmetic midpoint of 5-7: a lognormal's median is the GEOMETRIC centre, and the
+  # geometric centres of 3-11 and 5-7 are 5.74 and 5.92 respectively. Forcing 6.0 would push
+  # the upper 95% bound to 11.5 d, outside the range the source gives.
+  mayv3_11  = list(dist = "lognormal", lo = 3/7,      hi = 11/7,
+                   ml = mean(log(c(3,5,7,11)/7)),
+                   sl = sum(qnorm(c(.025,.25,.75,.975)) * log(c(3,5,7,11))) /
+                        sum(qnorm(c(.025,.25,.75,.975))^2)),
+  # CDC: "the incubation period for Mayaro virus disease is 1-14 days". A stated RANGE with
+  # hard limits, not a credible interval, so it is sampled UNIFORMLY across the whole range
+  # rather than fitted with the endpoints as percentiles (which would place 5% of draws
+  # outside the limits the source gives).
+  cdc1_14   = list(dist = "uniform",   lo = 1/7,     hi = 14/7),
+  # Caicedo et al. 2021 estimated intrinsic incubation, 3.0 d (95% CrI 2.4-4.1): the only
+  # FITTED estimate, but of the population mean rather than the clinical range.
+  caicedo3d = list(dist = "lognormal", lo = 2.4/7,   hi = 4.1/7),
+  # pre-2026-07 assumption, retained for continuity
+  long12d   = list(dist = "lognormal", lo = 11.31/7, hi = 12.69/7))
+lat <- LAT_SPEC[[MAYV_LATENT]]
+lat_lo <- lat$lo; lat_hi <- lat$hi
+# lat_ml/lat_sl are lognormal-only; NA under a uniform so nothing downstream can quietly
+# treat the uniform draws as lognormal.
+lat_ml <- lat_sl <- NA_real_
+if (lat$dist == "lognormal") {
+  # A spec may supply ml/sl explicitly (fitted to more than two quantiles); otherwise the
+  # endpoints are taken as the 2.5th/97.5th percentiles and the median is their geometric mean.
+  lat_ml <- if (!is.null(lat$ml)) lat$ml else (log(lat_lo) + log(lat_hi)) / 2
+  lat_sl <- if (!is.null(lat$sl)) lat$sl else (log(lat_hi) - log(lat_lo)) / (2 * 1.96)
+}
+# quantile function for the chosen family, used by the LHS below
+lat_q <- function(u) {
+  if (lat$dist == "uniform") qunif(u, lat_lo, lat_hi) else qlnorm(u, lat_ml, lat_sl)
+}
+p_m <- lat_q(0.5)                               # median period, weeks
+cat(sprintf("Latent period '%s': %s on [%.2f, %.2f] d -> median %.4f wk (%.2f d)\n",
+            MAYV_LATENT, lat$dist, 7*lat_lo, 7*lat_hi, p_m, 7*p_m))
 rab <- c(a = 20, b = 60)                        # rho ~ Beta(20,60), mean 0.25
 # SYMPTOMATIC FRACTION -- MAYV-specific, replacing the borrowed CHIKV Beta(35.84, 32.56).
 # Bounded by the only two usable MAYV denominators:
@@ -254,11 +354,30 @@ R0_VALUE   <- R0_median                         # name kept for downstream compa
 imm_lo95 <- 0.03; imm_hi95 <- 0.18
 imm_meanlog <- (log(imm_lo95) + log(imm_hi95)) / 2         # median = exp(meanlog) ~ 0.073
 imm_sdlog   <- (log(imm_hi95) - log(imm_lo95)) / (2*1.96)
-imm_base    <- 0.08                                        # Lima central estimate, for the baseline run
 
-cat(sprintf("SAMPLED priors:\n  gamma     ~ N(%.3f, %.4f) /wk\n  latent    ~ logN(%.4f, %.4f) wk  -> median %.2f d, 95%% %.2f-%.2f d\n  rho       ~ Beta(%d, %d)\n  prop_symp ~ logN(%.4f, %.4f) trunc at 1 -> median %.3f, 95%% %.3f-%.3f\n  immune    ~ logN(med %.3f, 95%% [%.2f, %.2f])\n",
-            g_m, g_sd,
-            lat_ml, lat_sl, 7*exp(lat_ml), 7*qlnorm(.025, lat_ml, lat_sl), 7*qlnorm(.975, lat_ml, lat_sl),
+# BASELINE IMMUNITY SCENARIO.
+#   "naive" (default) -- the population is assumed FULLY SUSCEPTIBLE to MAYV: immunity = 0
+#     in every draw, so S(0) = N. Appropriate for a municipality outside the Amazon basin
+#     with no documented MAYV circulation: Lima's 8% is a pooled CENTRAL-WEST exposure rate
+#     across settings that include endemic ones, so applying it to Caldas Novas asserts
+#     prior transmission that has not been observed there.
+#   "lima" -- restores the sampled flat seroprevalence, logN median 7.3% (95% UI 3-18%),
+#     retained as a structural sensitivity.
+# NB with immunity = 0 the susceptible pool no longer varies between draws, so it stops
+# contributing to the outbreak-size interval. Under "lima" it was the second strongest
+# driver (r ~ -0.52 with log infections), so the bands below will narrow appreciably --
+# that is a real consequence of the assumption, not a change in the transmission model.
+if (!exists("MAYV_IMMUNITY")) MAYV_IMMUNITY <- "naive"      # "naive" | "lima"
+stopifnot(MAYV_IMMUNITY %in% c("naive", "lima"))
+imm_base <- if (MAYV_IMMUNITY == "naive") 0 else 0.08       # baseline-run value
+cat(sprintf("Baseline immunity scenario '%s': %s\n", MAYV_IMMUNITY,
+            if (MAYV_IMMUNITY == "naive") "0% -- population fully susceptible"
+            else sprintf("logN median %.1f%% (95%% UI %.0f-%.0f%%)",
+                         100*exp(imm_meanlog), 100*imm_lo95, 100*imm_hi95)))
+
+cat(sprintf("SAMPLED priors:\n  gamma     ~ logN(%.4f, %.4f) /wk -> period %.2f d (%.2f-%.2f)\n  latent    ~ %s on [%.2f, %.2f] d  -> median %.2f d\n  rho       ~ Beta(%d, %d)\n  prop_symp ~ logN(%.4f, %.4f) trunc at 1 -> median %.3f, 95%% %.3f-%.3f\n  immune    ~ logN(med %.3f, 95%% [%.2f, %.2f])\n",
+            g_ml, g_sl, 7/exp(g_ml), 7/qlnorm(.975, g_ml, g_sl), 7/qlnorm(.025, g_ml, g_sl),
+            lat$dist, 7*lat_lo, 7*lat_hi, 7*p_m,
             rab["a"], rab["b"],
             ps_ml, ps_sl, exp(ps_ml), qlnorm(.025, ps_ml, ps_sl), qlnorm(.975, ps_ml, ps_sl),
             exp(imm_meanlog), imm_lo95, imm_hi95))
@@ -320,11 +439,13 @@ cat(sprintf("Reference R0=%.2f (other scenario, same scaling): total infections 
 set.seed(2024); n <- 1000
 lhs_col <- function(n) (sample.int(n) - runif(n)) / n
 U   <- sapply(1:6, function(j) lhs_col(n))
-gam <- qnorm(U[,1], g_m, g_sd)                  # rate
-sig <- 1/qlnorm(U[,2], lat_ml, lat_sl)          # lognormal PERIOD -> rate
+gam <- qlnorm(U[,1], g_ml, g_sl)                # rate (lognormal; see above)
+sig <- 1/lat_q(U[,2])                           # sampled PERIOD -> rate (family per LAT_SPEC)
 rho <- qbeta(U[,3], rab["a"], rab["b"])
 psy <- qlnorm(U[,4]*ps_cap, ps_ml, ps_sl)       # lognormal, truncated at 1
-imm <- qlnorm(U[,5], imm_meanlog, imm_sdlog)    # flat prior-immune fraction (Lima 2021)
+# U[,5] is drawn either way so the other five inputs get identical values under both
+# immunity scenarios, making the two runs directly comparable draw-for-draw.
+imm <- if (MAYV_IMMUNITY == "naive") rep(0, n) else qlnorm(U[,5], imm_meanlog, imm_sdlog)
 R0v <- qlnorm(U[,6], R0_meanlog, R0_sdlog)      # SAMPLED from the scenario range
 
 rep_mat <- inf_mat <- matrix(NA_real_, n, T_weeks)
@@ -431,10 +552,11 @@ mayv_lhs_ensemble <- list(
   # the OWSA base case keep working; R0_sampled/R0_lo/R0_hi describe the actual prior.
   R0_fixed = R0_median, R0_sampled = TRUE, R0_lo = R0_LO, R0_hi = R0_HI,
   R0_meanlog = R0_meanlog, R0_sdlog = R0_sdlog,
-  lat_meanlog = lat_ml, lat_sdlog = lat_sl, MAYV_LATENT = MAYV_LATENT,
+  lat_meanlog = lat_ml, lat_sdlog = lat_sl,        # NA when the family is uniform
+  lat_dist = lat$dist, lat_lo = lat_lo, lat_hi = lat_hi, MAYV_LATENT = MAYV_LATENT,
   ps_meanlog = ps_ml, ps_sdlog = ps_sl,
   base_gamma = g_m, base_sigma = 1/p_m, base_prop_symp = PSYMP_MED,
-  base_immune = imm_base,
+  base_immune = imm_base, MAYV_IMMUNITY = MAYV_IMMUNITY,
   season = season, N = N, A = A, age_df = age_df,
   I0_total = I0_total, E0 = E0, seed_week = seed_week,
   T_weeks = T_weeks, weeks = weeks, x_ticks = x_ticks, year_break = year_break)

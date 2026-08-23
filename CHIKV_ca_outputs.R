@@ -436,7 +436,32 @@ daly_averted <- do.call(rbind, lapply(vac_names, function(nm) {
              DALY_averted_per_100k_doses = p100(m[,"daly"]),
              row.names = NULL, check.names = FALSE)
 }))
-write_xlsx(list(daly_by_scenario = daly_by_scenario, daly_averted = daly_averted),
+
+# ------------------------------------------------------------
+# yld_by_phase: the acute / sub-acute / chronic split of YLDs, in one place.
+# daly_by_scenario already reports the phase split of the LEVELS, and daly_averted the
+# TOTAL averted -- but nothing carried the phase split of what the vaccine AVERTS, which is
+# the quantity a per-dose comparison needs. Long-format (one row per scenario x phase) so
+# the phases can be filtered or plotted directly.
+# pct_of_total is each phase's share of BASELINE YLD, so it is a property of the disease
+# course and does not vary by vaccination scenario.
+# ------------------------------------------------------------
+PHASE <- c(yld_acute = "Acute (<=14 d)", yld_subacute = "Sub-acute (14 d - 3 mo)",
+           yld_chronic = "Chronic (>3 mo)", yld = "TOTAL YLD")
+yld_by_phase <- do.call(rbind, lapply(vac_names, function(nm) {
+  s_ <- bmat[[nm]]; doses <- s_[, "doses"]; tot <- base_daly[, "yld"]
+  do.call(rbind, lapply(names(PHASE), function(k) {
+    bl <- base_daly[, k]; av <- bl - s_[, k]
+    r  <- 1e5 * av / doses; r[!is.finite(r) | r < 0] <- NA
+    data.frame(timing = sub(" \\|.*", "", nm), arm = sub(".*\\| ", "", nm), phase = PHASE[[k]],
+               YLD_baseline = fmtq(bl), YLD_vaccinated = fmtq(s_[, k]),
+               YLD_averted = fmtq(av), YLD_averted_per_100k_doses = fmtq(r, 1),
+               pct_of_total_YLD = sprintf("%.1f%%", 100 * median(bl) / median(tot)),
+               row.names = NULL, check.names = FALSE) }))
+}))
+
+write_xlsx(list(daly_by_scenario = daly_by_scenario, daly_averted = daly_averted,
+                yld_by_phase = yld_by_phase),
            "CHIKV_ca_daly_outputs.xlsx")
 
 # (a) baseline DALY composition

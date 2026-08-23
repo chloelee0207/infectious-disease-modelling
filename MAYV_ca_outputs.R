@@ -223,7 +223,33 @@ daly_averted <- do.call(rbind, lapply(vac_names, function(nm) {
              DALY_averted_per_100k_doses = p100(ad),
              row.names = NULL, check.names = FALSE)
 }))
-write_xlsx(list(daly_by_scenario = daly_by_scenario, daly_averted = daly_averted),
+
+# ------------------------------------------------------------
+# yld_by_phase: the acute / sub-acute / chronic split of YLDs, in one place.
+# daly_by_scenario already reports the phase split of the LEVELS, and daly_averted the
+# TOTAL averted -- but nothing carried the phase split of what the vaccine AVERTS, which is
+# the quantity a per-dose comparison needs. Long-format (one row per scenario x phase) so
+# the phases can be filtered or plotted directly.
+# pct_of_total is each phase's share of BASELINE YLD, so it is a property of the disease
+# course and does not vary by vaccination scenario.
+# ------------------------------------------------------------
+PHASE <- c(yld_acute = "Acute (<=14 d)", yld_subacute = "Sub-acute (14 d - 3 mo)",
+           yld_chronic = "Chronic (>3 mo)", yld = "TOTAL YLD")
+yld_by_phase <- do.call(rbind, lapply(vac_names, function(nm) {
+  s_ <- G$per_draw[[nm]][ok, , drop = FALSE]; doses <- s_[, "doses"]
+  tot <- base_pd[ok, "yld"]
+  do.call(rbind, lapply(names(PHASE), function(k) {
+    bl <- base_pd[ok, k]; av <- bl - s_[, k]
+    r  <- 1e5 * av / doses; r[!is.finite(r) | r < 0] <- NA
+    data.frame(timing = lab_timing(nm), arm = lab_arm(nm), phase = PHASE[[k]],
+               YLD_baseline = fmtq(bl), YLD_vaccinated = fmtq(s_[, k]),
+               YLD_averted = fmtq(av), YLD_averted_per_100k_doses = fmtq(r, 1),
+               pct_of_total_YLD = sprintf("%.1f%%", 100 * median(bl) / median(tot)),
+               row.names = NULL, check.names = FALSE) }))
+}))
+
+write_xlsx(list(daly_by_scenario = daly_by_scenario, daly_averted = daly_averted,
+                yld_by_phase = yld_by_phase),
            "MAYV_ca_daly_outputs.xlsx")
 
 # ============================================================
@@ -354,7 +380,7 @@ cat("Saved MAYV_ca_residual_burden.png and .xlsx (burden as % of no vaccination;
 # ------------------------------------------------------------
 cat("Wrote MAYV_ca_vacc_outputs.xlsx (notes, baseline_true_reported, vaccinated_true_reported,\n",
     "     averted_MC_95UI, averted_per_100k_doses, scenario_totals)\n", sep = "")
-cat("Wrote MAYV_ca_daly_outputs.xlsx (daly_by_scenario, daly_averted)\n")
+cat("Wrote MAYV_ca_daly_outputs.xlsx (daly_by_scenario, daly_averted, yld_by_phase)\n")
 cat("Wrote MAYV_ca_nnv_outputs.xlsx  (nnv)\n\n")
 cat(sprintf("Fixed R0 = %.2f, all %d draws (no conditioning).  pct symptomatic reduced: %s\n",
             G$R0_fixed, G$N_DRAWS, mc_tbl$pct_symp[1]))

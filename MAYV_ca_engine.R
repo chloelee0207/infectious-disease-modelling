@@ -235,11 +235,29 @@ cfrN_d <- qbeta(nextU(9), matrix(cfr_nonh_a, N_DRAWS, 9, byrow=TRUE), matrix(cfr
 dwMM_d <- qbeta(nextU(), dp$dw_mm$a, dp$dw_mm$b); dwSV_d <- qbeta(nextU(), dp$dw_sev$a, dp$dw_sev$b)
 dwCH_d <- qbeta(nextU(), dp$dw_chr$a, dp$dw_chr$b)
 # Acute (mild/moderate) duration for MAYV is its own INFECTIOUS PERIOD, not CHIKV's:
-# recovery rate 1.0 (0.7-1.4) per week, so duration = 1/rate = 1 wk (0.714-1.429 wk),
-# converted to years. Lognormal matched to those bounds. Everything else below -- the
-# disability weights, the severe/hospitalised duration, and the sub-acute and chronic
-# durations -- stays borrowed from the CHIKV parameter set.
-MAYV_ACUTE_DUR <- list(m = log(1/52.1429), s = (log(1/0.7) - log(1/1.4))/(2*1.96))
+# symptoms resolve in about 7 days (5-9), so duration = 1/gamma, converted to years.
+# READ FROM THE WORKBOOK rather than hardcoded, so it cannot drift from the gamma row in
+# model_calibration.xlsx -- both carry the same sdlog by construction, which is the point:
+# the infectious period and the acute illness duration are the same quantity and must not
+# be able to disagree draw-to-draw. Everything else below -- the disability weights, the
+# severe/hospitalised duration, and the sub-acute and chronic durations -- stays borrowed
+# from the CHIKV parameter set.
+{
+  .d2 <- as.data.frame(readxl::read_excel("disease_progression.xlsx",
+                                          sheet = "disease_progression"))
+  .r2 <- .d2[.d2[[1]] == "Duration of illness for mild and moderate Mayaro (years)", ]
+  if (nrow(.r2) != 1)
+    stop("disease_progression.xlsx: expected exactly one MAYV mild/moderate duration row, found ", nrow(.r2))
+  MAYV_ACUTE_DUR <<- list(m = as.numeric(.r2[[8]]), s = as.numeric(.r2[[10]]))
+  .gs <- as.numeric(as.data.frame(readxl::read_excel("model_calibration.xlsx", 1)) |>
+           subset(Group == "MAYV" & grepl("gamma", Parameter)) |> (\(z) z[["Value 2"]])())
+  if (!isTRUE(all.equal(MAYV_ACUTE_DUR$s, .gs, tolerance = 1e-8)))
+    stop("MAYV acute duration sdlog (", MAYV_ACUTE_DUR$s, ") does not match gamma sdlog (", .gs,
+         "). They are the same quantity -- fix the workbooks before running.")
+  cat(sprintf("MAYV acute duration from workbook: %.2f d (95%% UI %.2f-%.2f), sdlog matches gamma\n",
+              365*exp(MAYV_ACUTE_DUR$m), 365*qlnorm(.025, MAYV_ACUTE_DUR$m, MAYV_ACUTE_DUR$s),
+              365*qlnorm(.975, MAYV_ACUTE_DUR$m, MAYV_ACUTE_DUR$s)))
+}
 duMM_d <- qlnorm(nextU(), MAYV_ACUTE_DUR$m, MAYV_ACUTE_DUR$s)
 duSV_d <- qlnorm(nextU(), dp$du_sev$m, dp$du_sev$s)   # severe: borrowed from CHIKV
 duSB_d <- qlnorm(nextU(), dp$du_sub$m, dp$du_sub$s)   # sub-acute duration (chronic DW applied)

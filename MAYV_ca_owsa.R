@@ -62,11 +62,26 @@ R0_MARKS <- c(low = 1.20, high = 2.47)             # scenario MEDIANS, for the f
 # keeps both that and the literal 1.20 and the grid gains a duplicate row.
 R0_SWEEP <- sort(unique(round(c(seq(1.1, 3.6, by = 0.1), unname(R0_MARKS)), 4)))
 
-BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 4/12,
+# imm follows the ensemble's baseline-immunity scenario (E$MAYV_IMMUNITY): 0 when the
+# population is assumed naive, the Lima median otherwise. Hardcoding it would silently
+# desynchronise the OWSA base case from the burden results.
+IMM_BASE <- if (identical(E$MAYV_IMMUNITY, "naive")) 0 else unname(median(E$immune_frac))
+BASE <- list(R0 = R0_BASE, imm = IMM_BASE, rho = 0.25, ve = 4/12,
              cov = 0.30, deliv = 0.10, delay = 2, immun = 2, env = "hybrid",
              psymp = PSYMP,                        # CHIKV-equivalent symptomatic fraction
-             latent = 1/SIGMA)                     # latent period, weeks (Caicedo 3.0 d)
+             latent = 1/SIGMA)                     # latent period, weeks (active scenario median)
 
+# LATENT PERIOD is a tornado row for the same reason as R0. It is now SAMPLED uniformly
+# across the CDC 1-14 d range rather than fixed at a point estimate, so it is genuine
+# within-scenario uncertainty and is propagated into every reported interval. It is in fact
+# the STRONGEST single driver (r ~ -0.68 with log infections, ahead of R0), so omitting it
+# would badly understate what the result depends on. Bounds are the sampled support, not a
+# 95% interval: CDC give 1-14 as hard limits, and the uniform has no tail beyond them.
+# Its mechanism is indirect -- R_eff = R0 x season(t) x S/N contains no sigma -- so it acts
+# by changing how many generations fit inside the supercritical season before the
+# dry-season tail ends it. The ALTERNATIVE PRIORS (Caicedo 3.0 d, the earlier 12 d) remain
+# structural rows: those are competing sources, not points within one range.
+#
 # R0 IS a tornado row (added 2026-08). It was excluded while R0 was FIXED per scenario --
 # a scenario-defining choice is not a within-setting uncertain parameter. Now that R0 is
 # SAMPLED per draw from a lognormal on the scenario range, it is exactly that, and it is
@@ -85,11 +100,7 @@ BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 4/12,
 #               rainfall shape and the hybrid. "Lower" and "upper" are meaningless for
 #               a categorical choice, and the rainfall arm additionally peaks before the
 #               campaign completes, so a single bar would conflate size with timing.
-#   latent   -- 3.0 d (Caicedo et al. 2021, base) vs the earlier 12 d assumption. Also a
-#               structural choice, and a consequential one: it changes the GENERATION TIME
-#               (1.43 vs 2.71 wk), hence how many generations fit inside the transmission
-#               season before the dry-season tail collapses it. R_eff is unchanged, but
-#               the realised outbreak is far larger at the shorter latent period.
+#   (latent period is no longer in this list -- see below.)
 #   prop_symp -- 52.4% (CHIKV-equivalent, base) vs 90% (MAYV-specific). Two competing
 #               ASSUMPTIONS, not a range on one quantity. It is also a pure multiplier:
 #               it never enters transmission, so infections and the attack rate are
@@ -100,15 +111,20 @@ BASE <- list(R0 = R0_BASE, imm = 0.0735, rho = 0.25, ve = 4/12,
 # immunity and the seed; rho is applied afterwards only to convert TRUE cases into
 # REPORTED ones. It therefore has exactly zero effect on true cases averted.
 BOUNDS <- list(
-  R0    = unname(c(E$R0_lo, E$R0_hi)),                 # the scenario's SAMPLED range
-  imm   = c(0.03, 0.18),                               # Lima 2021 Central-West 95% CI
-  ve    = c(0.109, 0.610),                             # Kostecki 2026, Beta(4,8) 95% UI
+  R0     = unname(c(E$R0_lo, E$R0_hi)),                # the scenario's SAMPLED range
+  latent = unname(c(E$lat_lo, E$lat_hi)),              # sampled support of the active scenario
+  ve     = c(0.109, 0.610),                            # Kostecki 2026, Beta(4,8) 95% UI
   cov   = c(0.20, 0.40),
   deliv = c(0.09, 0.11),
   delay = c(1, 3),
   immun = c(1, 3))
+# Prior immunity is a tornado row ONLY when it is sampled. Under the naive-population
+# assumption it is fixed at 0, so a "lower/upper" bar would be meaningless; the naive-vs-Lima
+# contrast is reported in structural_sensitivity instead.
+if (!identical(E$MAYV_IMMUNITY, "naive"))
+  BOUNDS <- c(list(imm = c(0.03, 0.18)), BOUNDS)     # Lima 2021 Central-West 95% CI
 
-PAR_LAB <- c(R0 = "R0", imm = "Rate of exposure",
+PAR_LAB <- c(R0 = "R0", latent = "Latent period", imm = "Rate of exposure",
              rho = "Reporting rate", ve = "Vaccine efficacy",
              cov = "Vaccine coverage", deliv = "Weekly delivery speed",
              delay = "Delay in deployment", immun = "Time to immunity",
@@ -148,7 +164,9 @@ run_scenario <- function(p) {
   # `doses` column (target_pop_elig * cov). Scale-free benefit metric, so rows with
   # different outbreak sizes stay comparable.
   doses  <- target_pop_elig * p$cov
-  list(symptomatic_base = symp_b, averted = symp_b - symp_v,
+  # Infections is the quantity R0 acts on FIRST; symptomatic = infections x prop_symp is a
+  # pure downstream multiplier. Reporting both makes that ordering visible.
+  list(symptomatic_base = symp_b, infections_base = inf, averted = symp_b - symp_v,
        # REPORTED = rho x TRUE, applied after the simulation. rho never enters transmission
        # (seirv_vaccinated_MAYV does not even return a reported series), so these are the
        # ONLY quantities a change in rho can move.
@@ -213,13 +231,29 @@ struct <- rbind(
                              c(0.5242478, "52.4% (borrowed CHIKV, earlier assumption)")), function(x)
     srow("Symptomatic fraction (structure)", x[2],
          modifyList(BASE, list(psymp = as.numeric(x[1])))))),
-  # Latent period: Caicedo's 3.0 d intrinsic incubation (base) vs the earlier 12 d value.
-  # Unlike prop_symp this is NOT a multiplier -- it changes the generation time, so the
-  # infections and attack rate move too.
-  do.call(rbind, lapply(list(c(3/7,  "3.0 d (Caicedo et al. 2021, base case)"),
-                             c(12/7, "12 d (earlier assumption)")), function(x)
-    srow("Latent period (structure)", x[2],
+  # Latent period by SOURCE. The published estimates genuinely disagree -- Martins et al.
+  # 2020 give an incubation period of 7-12 d while Diagne et al. 2020 chart it at roughly
+  # 0-6 d, and the two barely overlap. They cannot be pooled into one prior, so each is run
+  # as its own structural row. Unlike prop_symp this is NOT a multiplier: it changes the
+  # generation time, hence how many transmission cycles fit inside the wet season before the
+  # dry-season tail collapses transmission, so infections and attack rate move too. This is
+  # the single largest structural lever in the model after R0.
+  do.call(rbind, lapply(list(
+      c(unname(BASE$latent), sprintf("%.2f d (Martins et al. 2020, 7-12 d; base case)", 7*BASE$latent)),
+      c(sqrt(35)/7, "5.92 d (viraemia/symptom band 5-7 d)"),
+      c(sqrt(6)/7,  "2.45 d (Diagne et al. 2020, ~0-6 d)"),
+      c(3.0/7,      "3.0 d (Caicedo et al. 2021 estimated mean)"),
+      c(7.5/7,      "7.5 d (CDC 1-14 d uniform median, earlier base case)"),
+      c(12.0/7,     "12 d (earlier assumption)")), function(x)
+    srow("Latent period (source)", x[2],
          modifyList(BASE, list(latent = as.numeric(x[1])))))),
+  # Baseline immunity: naive population (base case) vs Lima's pooled Central-West
+  # seroprevalence. Two competing assumptions about whether MAYV has circulated in Caldas
+  # Novas at all, not a range on one quantity -- hence a structural row, not a tornado bar.
+  do.call(rbind, lapply(list(c(0,      "0% (naive population, base case)"),
+                             c(0.0735, "7.3% (Lima 2021 Central-West median)")), function(x)
+    srow("Baseline immunity (structure)", x[2],
+         modifyList(BASE, list(imm = as.numeric(x[1])))))),
   # Reporting rate. Included for completeness, and the result is the point: because MAYV is
   # NOT fitted, rho never enters the transmission model -- it converts TRUE cases to REPORTED
   # ones after the simulation. Every true-burden column below is therefore IDENTICAL between
@@ -262,13 +296,18 @@ print(p_t)
 # ------------------------------------------------------------
 r0_response <- do.call(rbind, lapply(R0_SWEEP, function(x) {
   r <- run_scenario(modifyList(BASE, list(R0 = x)))
-  data.frame(R0 = x, symptomatic_base = r$symptomatic_base, averted = r$averted,
+  data.frame(R0 = x, infections_base = r$infections_base,
+             symptomatic_base = r$symptomatic_base, averted = r$averted,
+             averted_per_100k_doses = r$averted_per_100k,
              attack_pct = r$attack,
              pct_reduction = 100 * r$averted / max(r$symptomatic_base, 1e-9),
              row.names = NULL) }))
 cat("\n=== R0 response curve (deterministic, median inputs) ===\n")
-print(transform(r0_response, symptomatic_base = round(symptomatic_base),
-                averted = round(averted), attack_pct = round(attack_pct, 3),
+print(transform(r0_response, infections_base = round(infections_base),
+                symptomatic_base = round(symptomatic_base),
+                averted = round(averted),
+                averted_per_100k_doses = round(averted_per_100k_doses),
+                attack_pct = round(attack_pct, 3),
                 pct_reduction = round(pct_reduction, 1)), row.names = FALSE)
 
 scen_pts <- subset(r0_response, R0 %in% round(R0_MARKS, 10))
@@ -323,7 +362,8 @@ if (R0_PSA_RUN) {
   t_start <- Sys.time()
   r0_response_psa <- do.call(rbind, lapply(seq_along(R0_SWEEP), function(k) {
     x <- R0_SWEEP[k]
-    sb <- av <- at <- numeric(nd)
+    sb <- av <- at <- nf <- numeric(nd)
+    dose_v <- target_pop_elig * cov_v      # per-draw doses; coverage is sampled
     for (i in seq_len(nd)) {
       Rimm <- rep(E$immune_frac[i], A)
       sus  <- N * (1 - E$immune_frac[i])
@@ -337,15 +377,20 @@ if (R0_PSA_RUN) {
       ninf <- r$new_infections; psi <- E$prop_symp[i]
       sb[i] <- sum(colSums(psi * ninf)[EVAL_WIN])
       av[i] <- sb[i] - sum(colSums(psi * ninf * (1 - ve_v[i] * r$coverage_frac))[EVAL_WIN])
-      at[i] <- 100 * sum(ninf[, EVAL_WIN]) / sum(sus)
+      nf[i] <- sum(ninf[, EVAL_WIN])
+      at[i] <- 100 * nf[i] / sum(sus)
     }
     pr <- 100 * av / pmax(sb, 1e-12)
-    qs <- q3(sb); qa <- q3(av); qp <- q3(pr); qt <- q3(at)
+    p1e5 <- 1e5 * av / pmax(dose_v, 1e-12)   # scale-free: averted per 100,000 doses
+    qs <- q3(sb); qa <- q3(av); qp <- q3(pr); qt <- q3(at); qn <- q3(nf); q5 <- q3(p1e5)
     cat(sprintf("   R0 %.1f done (%2d/%2d)  symptomatic %.0f [%.0f, %.0f]\n",
                 x, k, length(R0_SWEEP), qs[1], qs[2], qs[3]))
     data.frame(R0 = x,
+               infections_med = qn[1], infections_lo = qn[2], infections_hi = qn[3],
                symptomatic_med = qs[1], symptomatic_lo = qs[2], symptomatic_hi = qs[3],
                averted_med = qa[1], averted_lo = qa[2], averted_hi = qa[3],
+               averted_per_100k_med = q5[1], averted_per_100k_lo = q5[2],
+               averted_per_100k_hi = q5[3],
                pct_reduction_med = qp[1], pct_reduction_lo = qp[2], pct_reduction_hi = qp[3],
                attack_med = qt[1], attack_lo = qt[2], attack_hi = qt[3],
                row.names = NULL) }))
@@ -359,10 +404,15 @@ if (R0_PSA_RUN) {
     `Peak R0`                       = sprintf("%.2f", r0_response_psa$R0),
     `Attack rate (%)`               = fmt3(r0_response_psa$attack_med, r0_response_psa$attack_lo,
                                            r0_response_psa$attack_hi, 2),
+    `Baseline infections`           = fmt3(r0_response_psa$infections_med, r0_response_psa$infections_lo,
+                                           r0_response_psa$infections_hi, 0),
     `Baseline symptomatic cases`    = fmt3(r0_response_psa$symptomatic_med, r0_response_psa$symptomatic_lo,
                                            r0_response_psa$symptomatic_hi, 0),
     `Symptomatic cases averted`     = fmt3(r0_response_psa$averted_med, r0_response_psa$averted_lo,
                                            r0_response_psa$averted_hi, 0),
+    `Averted per 100,000 doses`     = fmt3(r0_response_psa$averted_per_100k_med,
+                                           r0_response_psa$averted_per_100k_lo,
+                                           r0_response_psa$averted_per_100k_hi, 0),
     `Symptomatic cases reduced (%)` = fmt3(r0_response_psa$pct_reduction_med, r0_response_psa$pct_reduction_lo,
                                            r0_response_psa$pct_reduction_hi, 1),
     check.names = FALSE, stringsAsFactors = FALSE)
